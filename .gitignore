@@ -1,0 +1,15 @@
+/target/
+/build/
+/dist/
+/.publish/
+/.ssmcp/
+/artifacts/
+*.crate
+*.pkg.tar.*
+*.log
+.env
+.env.*
+cookies*.json
+credentials*.json
+__pycache__/
+*.py[cod]

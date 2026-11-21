@@ -1,0 +1,110 @@
+# Validation record — 2026-11-21
+
+This record identifies what was actually exercised and which source snapshot
+each result covers. The machine-readable
+[validation receipt](evidence/validation-2026-11-21.json) contains commands,
+lock and source digests, screenshot hashes and the four background samples.
+The [dependency receipt](evidence/dependencies-2026-11-21.json) records the public
+Project Z default heads and the stable versions returned by crates.io.
+
+## Dependency refresh and headless tests
+
+`cargo update` refreshed five Project Z sources to their public default branches:
+zconv 0.4.1, zcall 0.4.1, zmcpio 0.5.0, zuse-computer 0.4.0 and zgpui 0.1.6.
+Development declarations remain pure Git dependencies. The observed latest
+stable versions of all 16 direct external dependencies match their declared
+lower bounds; `libc` was tightened from `0.2` to `0.2.191` without changing its
+already-current locked version.
+
+The sandbox ran these commands against the refreshed dependency graph:
+
+```sh
+cargo fmt --all -- --check
+cargo test --locked --no-default-features --all-targets --no-fail-fast
+```
+
+Both commands succeeded. The test command passed 57 library tests and 2 CLI
+tests, including all five `zuse_host` tests. Those tests cover whole-program
+preflight, imported functions and repeats, typed parameters, cancellation,
+partial failure receipts and redaction. Real loopback HTTP and OBS fixtures
+also passed. This particular run reported no permission errors; it did not
+compile or exercise the optional desktop module.
+
+The receipt records the exact tested lock and a digest of `src/**`. The final
+lock then moved zuse from `a5b645f` to `0016f96` after its default branch received
+one documentation correction. A Git comparison found only
+`docs/development.md` changed; the source tree, manifest and upstream lock
+objects are identical. `cargo update -p zuse-computer` changed only that
+package's locked commit. The receipt records this adjustment separately and
+does not present it as a new test run.
+
+## Linux native snapshot
+
+The earlier native run used the source overlays and dependency-lock digest
+listed in the receipt. Its commands were:
+
+```sh
+cargo test --locked --all-targets
+cargo build --locked
+bilibilive call rtc.self-test --args '{}' --json
+cmake --build dist/obs-plugin --parallel 4
+```
+
+The default desktop build and all 65 library plus 2 CLI tests passed. The local
+RTC check connected two libdatachannel peers and exercised ICE, DTLS, SCTP data
+channel 101, Protobuf request/reply and SRTP/RTP traffic. Separate
+`rtc.encoder.probe` calls used 128 × 128, 10 fps, eight-frame synthetic input.
+H.264 returned 39 RTP packets in 70 ms; AV1 returned 33 packets in 403 ms.
+These timings include process startup and reception and establish encoder
+availability for that input, not sustained production throughput.
+
+### Window and image rendering
+
+An isolated 1280 × 900 Xvfb session contained the entire 1160 × 800 application
+window. Captures used the observed window origin, so the reviewed images include
+all four window edges. The overview and room screenshots show Chinese glyphs
+and were manually inspected without observed text or layout overflow.
+
+The mapped graphics libraries identify Mesa's software implementation of
+OpenGL. This validates the application's OpenGL rendering path in that private
+display. It does not measure a hardware GPU and does not establish acceptance
+of the separately compiled `linux-software` backend.
+
+A second empty-account profile used a generated four-quadrant background,
+stretch mode, zero blur and 60% opacity. All four samples matched the expected
+color direction and alpha composition within the five-level channel tolerance:
+
+| Window point | Expected RGB | Observed RGB |
+| --- | --- | --- |
+| 235, 100 | 139, 44, 46 | 138, 44, 46 |
+| 1145, 100 | 43, 121, 75 | 42, 121, 75 |
+| 235, 700 | 43, 73, 142 | 42, 73, 142 |
+| 1145, 700 | 144, 121, 46 | 143, 121, 46 |
+
+Screenshots and native binaries remain outside Git. Their hashes in the receipt
+identify the reviewed files. These observations supplement the native image
+crop tests; they do not establish a successful platform cover upload.
+
+### OBS module loading
+
+The plugin built against the local OBS and Qt SDK. An independent OBS 33
+instance, started with `--multi` and private XDG configuration and D-Bus,
+listed `obs-bilibilive-pk.so` in its loaded modules. `/proc` mapped the exact
+plugin copy placed in that private profile, with SHA-256
+`989f5698c7cae5e1fcd78c98ec94e926156d34782782af34d7084d3e710cb28d`.
+
+This check loaded the module without starting capture or streaming and without
+modifying the user's OBS instance. It proves native
+module loading in that OBS environment. It does not prove a complete OBS
+capture-to-platform PK exchange. The private fixture sessions reported that
+their child processes had exited and their private configuration was removed.
+
+## Remaining acceptance boundaries
+
+The refreshed lock's full native build is a separate gate from the earlier
+native snapshot. Formal release results should identify their own source
+commit. Authenticated Bilibili permissions, broadcast mutations, online
+two-party PK, direct/relay transport tickets, macOS and Windows desktop/plugin
+runtime behavior, and published-package installation each require their own
+receipts. [COMPATIBILITY.md](COMPATIBILITY.md) describes the complete audited
+scope and [STARTLIVE_AUDIT.md](STARTLIVE_AUDIT.md) maps the reference project.

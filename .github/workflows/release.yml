@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            os: ubuntu-latest
+          - platform: macos
+            os: macos-latest
+          - platform: windows
+            os: windows-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Initialize native Windows compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+      - name: Install Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libx11-dev libfreetype-dev libfontconfig-dev libgl1-mesa-dev cmake ninja-build libobs-dev qt6-base-dev libsimde-dev xvfb
+      - name: Check version and locked sources
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib, tomllib
+          doc = tomllib.loads(pathlib.Path('Cargo.toml').read_text())
+          version = doc['package']['version']
+          if os.environ['GITHUB_REF'].startswith('refs/tags/'):
+              assert os.environ['GITHUB_REF_NAME'] == 'v' + version, 'Release tag must match Cargo.toml'
+          print('Building bilibilive', version)
+          PY
+          cargo metadata --locked --format-version 1 > /dev/null
+      - name: Validate native build
+        run: |
+          cargo test --locked
+          cargo check --locked --no-default-features
+          cargo build --release --locked
+      - name: Build Linux OBS plugin
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S plugins/obs-bilibilive-pk -B build/obs-plugin -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/obs-plugin --parallel 2
+      - name: Exercise the native Linux window
+        if: runner.os == 'Linux'
+        env:
+          BILIBILIVE_GUI_FRAMES: '12'
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a target/release/bilibilive gui --demo
+      - name: Verify and package the registry source projection
+        if: runner.os == 'Linux'
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/target
+        run: |
+          python scripts/prepare-release.py --output "$RUNNER_TEMP/bilibilive-registry"
+          python - <<'PY'
+          import os, pathlib, shutil, tarfile, tomllib
+          root = pathlib.Path.cwd()
+          version = tomllib.loads((root / 'Cargo.toml').read_text())['package']['version']
+          stage = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bilibilive-registry'
+          dist = root / 'dist'
+          dist.mkdir(exist_ok=True)
+          shutil.copy2(root / f'target/package/bilibilive-{version}.crate', dist)
+          shutil.copy2(stage / 'release-provenance.json', dist / f'bilibilive-v{version}-release-provenance.json')
+          with tarfile.open(dist / f'bilibilive-v{version}-registry-source.tar.gz', 'w:gz') as archive:
+              archive.add(stage, arcname=f'bilibilive-{version}')
+          PY
+      - name: Package release assets
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib, os, pathlib, shutil, subprocess, tarfile, tomllib, zipfile
+          root = pathlib.Path.cwd()
+          version = tomllib.loads((root / 'Cargo.toml').read_text())['package']['version']
+          host = next(line.split(': ', 1)[1] for line in subprocess.check_output(['rustc', '-vV'], text=True).splitlines() if line.startswith('host:'))
+          name = f'bilibilive-v{version}-{host}'
+          folder = root / 'dist' / name
+          folder.mkdir(parents=True)
+          executable = 'bilibilive.exe' if os.name == 'nt' else 'bilibilive'
+          shutil.copy2(root / 'target/release' / executable, folder / executable)
+          for filename in ('LICENSE', 'NOTICE', 'README.md'):
+              shutil.copy2(root / filename, folder / filename)
+          if os.name != 'nt':
+              shutil.copy2(root / 'packaging/bilibilive.1', folder / 'bilibilive.1')
+          plugin = root / 'build/obs-plugin/obs-bilibilive-pk.so'
+          if plugin.is_file():
+              shutil.copy2(plugin, folder / plugin.name)
+          if os.name == 'nt':
+              archive = root / 'dist' / (name + '.zip')
+              with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as out:
+                  for file in folder.rglob('*'):
+                      if file.is_file(): out.write(file, file.relative_to(folder.parent))
+          else:
+              archive = root / 'dist' / (name + '.tar.gz')
+              with tarfile.open(archive, 'w:gz') as out: out.add(folder, arcname=name)
+          digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+          archive.with_name(archive.name + '.sha256').write_text(digest + '  ' + archive.name + '\n')
+          print(archive)
+          PY
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: bilibilive-${{ matrix.platform }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+            dist/*.crate
+            dist/*provenance.json
+          if-no-files-found: error
+          retention-days: 14
+
+  publish-assets:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: native
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: bilibilive-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3.0.4
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
+          generate_release_notes: true

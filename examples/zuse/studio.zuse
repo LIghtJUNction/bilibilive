@@ -1,0 +1,29 @@
+# Importable native bilibilive module. Importing it performs no operations.
+# Run with bilibilive zuse; all functions expand before the first operation.
+
+fn inspect() {
+    bilibilive.doctor();
+    bilibilive.config.get();
+    bilibilive.account.list();
+}
+
+fn inspect_room() {
+    bilibilive.room.get();
+    bilibilive.room.precheck();
+    bilibilive.room.audit();
+}
+
+fn prepare_room(title, area_id) {
+    bilibilive.room.update(title=title, area_id=area_id);
+    bilibilive.room.get();
+}
+
+# Only invoking this function starts a room. A verification-required or missing
+# requested protocol result stops the program and keeps the completed receipt.
+fn start_room(area_id, protocol, strategy) {
+    bilibilive.live.start(area_id=area_id, protocol=protocol, strategy=strategy);
+}
+
+fn stop_room() {
+    bilibilive.live.stop();
+}

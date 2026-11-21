@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=bilibilive
+GenericName=Bilibili streaming studio
+Comment=Manage Bilibili live rooms, OBS and native automation
+Comment[zh_CN]=管理哔哩哔哩直播、OBS 与原生自动化
+Exec=bilibilive gui
+Icon=bilibilive
+Terminal=false
+Categories=AudioVideo;Video;Network;
+Keywords=Bilibili;OBS;Streaming;Live;MCP;
+StartupWMClass=Bilibilive

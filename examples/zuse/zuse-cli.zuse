@@ -1,0 +1,22 @@
+# Import this module into the standalone zuse runtime for desktop workflows.
+# zuse's process.start parses a quoted argument string directly; it uses no shell.
+# The JSON in --args is a single argument, not a JSON array of process arguments.
+# Processes have their own lifetime: read/stop their returned ID in your caller.
+
+fn inspect_local() {
+    process.start(program="bilibilive", args="call doctor --args '{}' --json");
+}
+
+fn inspect_room() {
+    process.start(program="bilibilive", args="call room.get --args '{}' --json");
+}
+
+fn inspect_areas() {
+    process.start(program="bilibilive", args="call area.list --args '{}' --json");
+}
+
+# This separate function changes the room title only when explicitly invoked.
+# Double quotes within JSON are escaped once for the zuse source string.
+fn set_demo_title() {
+    process.start(program="bilibilive", args="call room.update --args '{\"title\":\"demo\"}' --json");
+}

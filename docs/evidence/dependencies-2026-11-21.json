@@ -1,0 +1,245 @@
+{
+  "schema_version": 1,
+  "checked_at": "2026-11-21T12:31:14.443207+00:00",
+  "policy": "Internal Project Z manifests use pure default-branch Git declarations; Cargo.lock records verified public default heads. External direct requirements name the observed latest stable lower bound.",
+  "command": "cargo update",
+  "lock_sha256": "c5d7ef6aba1860fefc100f1211ca3b6378f0cf68507bdd6015b4190b492c9668",
+  "internal_git": [
+    {
+      "package": "z64",
+      "version": "0.1.2",
+      "git": "https://github.com/LIghtJUNction/z64.git",
+      "locked_commit": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd",
+      "observed_default_head": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd"
+    },
+    {
+      "package": "zcall",
+      "version": "0.4.1",
+      "git": "https://github.com/LIghtJUNction/zcall.git",
+      "locked_commit": "8dd30a922a0aedbe821f610649b1ab26078d1882",
+      "observed_default_head": "8dd30a922a0aedbe821f610649b1ab26078d1882"
+    },
+    {
+      "package": "zclap",
+      "version": "0.1.4",
+      "git": "https://github.com/LIghtJUNction/zclap.git",
+      "locked_commit": "4d87f3ae3743e81509d5ac5500909955667c860f",
+      "observed_default_head": "4d87f3ae3743e81509d5ac5500909955667c860f"
+    },
+    {
+      "package": "zconv",
+      "version": "0.4.1",
+      "git": "https://github.com/LIghtJUNction/zconv.git",
+      "locked_commit": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "observed_default_head": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+    },
+    {
+      "package": "zgpui",
+      "version": "0.1.6",
+      "git": "https://github.com/LIghtJUNction/zgpui.git",
+      "locked_commit": "174a8b73087deeac2ecfa036cad8bddba71c612f",
+      "observed_default_head": "174a8b73087deeac2ecfa036cad8bddba71c612f"
+    },
+    {
+      "package": "zmcpio",
+      "version": "0.5.0",
+      "git": "https://github.com/LIghtJUNction/zmcpio.git",
+      "locked_commit": "d5e7ffb76184e6754bb7b564a217db1e2099e531",
+      "observed_default_head": "d5e7ffb76184e6754bb7b564a217db1e2099e531"
+    },
+    {
+      "package": "zsys",
+      "version": "0.1.1",
+      "git": "https://github.com/LIghtJUNction/zsys.git",
+      "locked_commit": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7",
+      "observed_default_head": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7"
+    },
+    {
+      "package": "zuse-computer",
+      "version": "0.4.0",
+      "git": "https://github.com/LIghtJUNction/zuse.git",
+      "locked_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
+      "observed_default_head": "0016f96067d1e4672c62be9d8008d210edcdae2d"
+    }
+  ],
+  "external": [
+    {
+      "dependency": "libc",
+      "package": "libc",
+      "manifest_requirement": "0.2.191",
+      "latest_stable": "0.2.191",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/libc",
+      "locked_versions": [
+        "0.2.191"
+      ]
+    },
+    {
+      "dependency": "serde",
+      "package": "serde",
+      "manifest_requirement": "1.0.229",
+      "latest_stable": "1.0.229",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/serde",
+      "locked_versions": [
+        "1.0.229"
+      ]
+    },
+    {
+      "dependency": "serde_json",
+      "package": "serde_json",
+      "manifest_requirement": "1.0.154",
+      "latest_stable": "1.0.154",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/serde_json",
+      "locked_versions": [
+        "1.0.154"
+      ]
+    },
+    {
+      "dependency": "reqwest",
+      "package": "reqwest",
+      "manifest_requirement": "0.13.5",
+      "latest_stable": "0.13.5",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/reqwest",
+      "locked_versions": [
+        "0.13.5"
+      ]
+    },
+    {
+      "dependency": "md5",
+      "package": "md5",
+      "manifest_requirement": "0.8.1",
+      "latest_stable": "0.8.1",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/md5",
+      "locked_versions": [
+        "0.8.1"
+      ]
+    },
+    {
+      "dependency": "keyring",
+      "package": "keyring",
+      "manifest_requirement": "4.2.0",
+      "latest_stable": "4.2.0",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/keyring",
+      "locked_versions": [
+        "4.2.0"
+      ]
+    },
+    {
+      "dependency": "sha2",
+      "package": "sha2",
+      "manifest_requirement": "0.11.1",
+      "latest_stable": "0.11.1",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/sha2",
+      "locked_versions": [
+        "0.11.1"
+      ]
+    },
+    {
+      "dependency": "hmac",
+      "package": "hmac",
+      "manifest_requirement": "0.13.0",
+      "latest_stable": "0.13.0",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/hmac",
+      "locked_versions": [
+        "0.13.0"
+      ]
+    },
+    {
+      "dependency": "base64",
+      "package": "base64",
+      "manifest_requirement": "0.23.1",
+      "latest_stable": "0.23.1",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/base64",
+      "locked_versions": [
+        "0.23.1"
+      ]
+    },
+    {
+      "dependency": "getrandom",
+      "package": "getrandom",
+      "manifest_requirement": "0.4.3",
+      "latest_stable": "0.4.3",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/getrandom",
+      "locked_versions": [
+        "0.2.17",
+        "0.4.3"
+      ]
+    },
+    {
+      "dependency": "tungstenite",
+      "package": "tungstenite",
+      "manifest_requirement": "0.30.0",
+      "latest_stable": "0.30.0",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/tungstenite",
+      "locked_versions": [
+        "0.30.0"
+      ]
+    },
+    {
+      "dependency": "flate2",
+      "package": "flate2",
+      "manifest_requirement": "1.1.11",
+      "latest_stable": "1.1.11",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/flate2",
+      "locked_versions": [
+        "1.1.11"
+      ]
+    },
+    {
+      "dependency": "brotli",
+      "package": "brotli",
+      "manifest_requirement": "9.1.3",
+      "latest_stable": "9.1.3",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/brotli",
+      "locked_versions": [
+        "9.1.3"
+      ]
+    },
+    {
+      "dependency": "qrcodegen",
+      "package": "qrcodegen",
+      "manifest_requirement": "1.8.0",
+      "latest_stable": "1.8.0",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/qrcodegen",
+      "locked_versions": [
+        "1.8.0"
+      ]
+    },
+    {
+      "dependency": "image",
+      "package": "image",
+      "manifest_requirement": "0.25.10",
+      "latest_stable": "0.25.10",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/image",
+      "locked_versions": [
+        "0.25.10"
+      ]
+    },
+    {
+      "dependency": "tray-icon",
+      "package": "tray-icon",
+      "manifest_requirement": "0.26.1",
+      "latest_stable": "0.26.1",
+      "same_exact_lower_bound": true,
+      "source": "https://crates.io/api/v1/crates/tray-icon",
+      "locked_versions": [
+        "0.26.1"
+      ]
+    }
+  ],
+  "registry_projection_status": "separate staging verification required before publication"
+}

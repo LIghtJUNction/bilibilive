@@ -1,0 +1,7 @@
+# Safe local inspection; it does not require a Bilibili account or OBS.
+# bilibilive zuse check examples/zuse/inspect.zuse
+# bilibilive zuse run examples/zuse/inspect.zuse --read-only
+import(path="studio.zuse", as="studio");
+timer.start();
+studio.inspect();
+timer.stop();

@@ -1,0 +1,14 @@
+bilibilive
+Copyright (C) 2026 LIghtJUNction
+
+This project is licensed under GPL-3.0-only.
+
+Protocol and compatibility reference:
+Radekyspec/StartLive, commit 0b5a9830a8305d9cd6ac15378e46bee05b894c11,
+https://github.com/Radekyspec/StartLive, GNU GPL version 3.
+The OBS capture plugin retains upstream copyright notices and protocol names.
+Its origin and local modifications are recorded in plugins/obs-bilibilive-pk/UPSTREAM.md.
+StartLive artwork and its separately reserved logo are not included.
+
+Project Z components retain their own MIT and/or Apache-2.0 licenses.
+Dependency identities are recorded by Cargo.lock and release provenance.

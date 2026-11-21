@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "date": "2026-11-21",
+  "evidence_policy": "Report each check against its own source and lock snapshot. No live Bilibili account, broadcast or two-party PK was used. Test artifacts and binaries remain outside the source repository.",
+  "headless_sandbox": {
+    "checked_at": "2026-11-21T12:27:52.797633+00:00",
+    "source_files_sha256": "0efeac0508ea636da3a10df068cbf23fc1178bddf15fdff886287e4c9857f89a",
+    "source_digest_encoding": "Sorted src/** files: UTF-8 repository-relative path, NUL, exact file bytes, NUL; SHA-256 of concatenation.",
+    "dependency_lock_sha256": "f99f26550ecb7ab31225c687fa17c05d76411cb336f2cc1d7443303ef93c6a1d",
+    "command": "cargo test --locked --no-default-features --all-targets --no-fail-fast",
+    "exit_code": 0,
+    "library_tests_passed": 57,
+    "cli_tests_passed": 2,
+    "tests_failed": 0,
+    "zuse_host_tests_passed": [
+      "zuse_host::tests::complete_preflight_prevents_earlier_side_effects",
+      "zuse_host::tests::execution_failure_keeps_prior_success_and_skips_following_steps",
+      "zuse_host::tests::cancellation_stops_before_the_next_mutation_and_keeps_receipts",
+      "zuse_host::tests::imports_functions_repeat_and_typed_json_are_preflighted",
+      "zuse_host::tests::plans_redact_secrets_and_reject_unbounded_or_scoped_programs"
+    ],
+    "permission_errors_observed": false,
+    "native_gui_tests_included": false,
+    "log_sha256": "c7335ea8f86325e950497f77fca9048bdf900f7eb1603edcd0f8b7007929c15a",
+    "format_command": "cargo fmt --all -- --check",
+    "format_exit_code": 0
+  },
+  "native_linux": {
+    "source_scope": "Pre-release source overlays; this native run predates the final Project Z lock refresh.",
+    "source_overlays": [
+      {
+        "file": "bilibilive-native.tar.gz",
+        "sha256": "595581ee9589efb10fa824a1cca0ff12a97840bf9d858fc006973f4403ac52e3"
+      },
+      {
+        "file": "bilibilive-cli.tar.gz",
+        "sha256": "799914facd5cc216cb6cb32a91df76bb149bba88d37e78488a66700e11612dd3"
+      }
+    ],
+    "dependency_lock_sha256": "344437861284bce42e4cc4a053e65e72f59ef0ba27c72e4f014b98a318799ea2",
+    "tests": {
+      "command": "cargo test --locked --all-targets",
+      "exit_code": 0,
+      "library_tests_passed": 65,
+      "cli_tests_passed": 2,
+      "tests_failed": 0
+    },
+    "build": {
+      "command": "cargo build --locked",
+      "exit_code": 0,
+      "features": "default: gui / OpenGL"
+    },
+    "rtc_loopback": {
+      "command": "bilibilive call rtc.self-test --args '{}' --json",
+      "passed": true,
+      "checks": [
+        "ICE",
+        "DTLS",
+        "SCTP data channel 101",
+        "Protobuf request/reply",
+        "SRTP/RTP round trip"
+      ],
+      "scope": "Two local libdatachannel peers; no platform ticket or remote broadcaster."
+    },
+    "encoder_probes": {
+      "operation": "rtc.encoder.probe",
+      "input": {
+        "width": 128,
+        "height": 128,
+        "fps": 10,
+        "frames": 8
+      },
+      "h264": {
+        "elapsed_ms": 70,
+        "rtp_packets": 39
+      },
+      "av1": {
+        "elapsed_ms": 403,
+        "rtp_packets": 33
+      },
+      "timing_scope": "Includes process startup and local packet reception; these are availability checks, not sustained live-stream benchmarks."
+    },
+    "obs_plugin_build": {
+      "command": "cmake --build dist/obs-plugin --parallel 4",
+      "exit_code": 0
+    },
+    "gui": {
+      "backend": "OpenGL, Mesa software rendering under private Xvfb",
+      "hardware_gpu_benchmark": false,
+      "window_width": 1160,
+      "window_height": 800,
+      "manual_review": {
+        "chinese_glyphs": "rendered",
+        "window_edges": "complete",
+        "layout_overflow": "not observed"
+      },
+      "screenshots": [
+        {
+          "path": "artifacts/qa-gpu-demo-2/review.png",
+          "sha256": "c9ee7b55bde21f7e09198d371259ad1e204555478bff4c58dcc8a79472e9d10e"
+        },
+        {
+          "path": "artifacts/qa-gpu-demo-2/room.png",
+          "sha256": "57c6912e48f3b98b3830cc596fed51ccd397d0b9aaf5f80928f74c0427756406"
+        }
+      ],
+      "background": {
+        "mode": "stretch",
+        "opacity_percent": 60,
+        "blur": 0,
+        "sample_tolerance": 5,
+        "passed": true,
+        "samples": [
+          {
+            "point": [
+              235,
+              100
+            ],
+            "expected_rgb": [
+              139,
+              44,
+              46
+            ],
+            "observed_rgb": [
+              138,
+              44,
+              46
+            ]
+          },
+          {
+            "point": [
+              1145,
+              100
+            ],
+            "expected_rgb": [
+              43,
+              121,
+              75
+            ],
+            "observed_rgb": [
+              42,
+              121,
+              75
+            ]
+          },
+          {
+            "point": [
+              235,
+              700
+            ],
+            "expected_rgb": [
+              43,
+              73,
+              142
+            ],
+            "observed_rgb": [
+              42,
+              73,
+              142
+            ]
+          },
+          {
+            "point": [
+              1145,
+              700
+            ],
+            "expected_rgb": [
+              144,
+              121,
+              46
+            ],
+            "observed_rgb": [
+              143,
+              121,
+              46
+            ]
+          }
+        ]
+      }
+    },
+    "obs_isolated_load": {
+      "obs_version": "33",
+      "receipt_path": "artifacts/qa-obs/obs-load.json",
+      "module": "obs-bilibilive-pk.so",
+      "module_sha256": "989f5698c7cae5e1fcd78c98ec94e926156d34782782af34d7084d3e710cb28d",
+      "loaded_modules_log_match": true,
+      "proc_maps_matches_isolated_plugin": true,
+      "streaming_started": false,
+      "capture_started": false,
+      "user_obs_modified": false
+    },
+    "private_fixture_cleanup": {
+      "all_sessions_children_exited": true,
+      "configuration_removed": true
+    },
+    "final_lock_native_validation": "Pending; do not infer final-lock native acceptance from this older-lock run."
+  },
+  "open_acceptance": [
+    "Authenticated Bilibili account and permission-dependent broadcast operations",
+    "Two-party platform PK invitation, capture, publication and reception",
+    "macOS and Windows native desktop/plugin runtime acceptance",
+    "Linux linux-software backend build and screenshot acceptance for the final source",
+    "Publication and installation receipts for GitHub, crates.io and AUR"
+  ],
+  "final_lock_adjustment": {
+    "command": "cargo update -p zuse-computer",
+    "public_default_head_verified": "0016f96067d1e4672c62be9d8008d210edcdae2d",
+    "previous_commit": "a5b645f1ccdca88f02f1166a3703b729c9f384b0",
+    "new_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
+    "only_upstream_file_changed": "docs/development.md",
+    "identical_git_objects": {
+      "src": "fcaefe82ebbdb3340816eecb88e3f2736bc51e2a",
+      "Cargo.toml": "567cfc7f1d65129691ab6ad4d9e097ee7bf0037c",
+      "Cargo.lock": "d9e426d966e72d13eb6ffe1c93a5dcb83be48e94"
+    },
+    "only_locked_package_changed": "zuse-computer",
+    "final_dependency_lock_sha256": "c5d7ef6aba1860fefc100f1211ca3b6378f0cf68507bdd6015b4190b492c9668",
+    "scope": "Documentation-only upstream adjustment after the recorded headless test run. No new test run is claimed."
+  }
+}

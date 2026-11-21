@@ -1,0 +1,11 @@
+# Requires a selected account. The program only reads platform state.
+# bilibilive zuse check examples/zuse/room-check.zuse --read-only
+# bilibilive zuse run examples/zuse/room-check.zuse --read-only
+import(path="studio.zuse", as="studio");
+timer.start();
+studio.inspect_room();
+repeat 2 {
+    wait(ms=250);
+    bilibilive.live.status();
+}
+timer.stop();

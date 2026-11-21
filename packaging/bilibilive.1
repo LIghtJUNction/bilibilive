@@ -1,0 +1,145 @@
+.TH BILIBILIVE 1 "2026-11-21" "bilibilive 0.1.0" "User Commands"
+.SH NAME
+bilibilive \- native Bilibili streaming studio, CLI and MCP server
+.SH SYNOPSIS
+.B bilibilive
+.RI [ options ]
+.RI [ command ]
+.SH DESCRIPTION
+bilibilive manages Bilibili live rooms, OBS integration, PK media and native
+automation. The zgpui desktop, CLI, MCP server and zuse host use the same
+operation schemas and application dispatcher.
+.SH COMMANDS
+.TP
+.B gui [--demo] [--listen ADDRESS]
+Open the native desktop. Demo mode uses offline sample data and never invokes
+account or broadcast operations. Explicit --listen starts a loopback API that
+shares the window's account and media session. Demo mode rejects a listener.
+.TP
+.B login [--name NAME]
+Generate a login QR code and poll until authentication, expiry or timeout.
+.TP
+.B status, start, stop, stream
+Read room status, start a broadcast, stop a broadcast, or read an existing
+stream endpoint. Reading a stream endpoint does not start a room.
+.TP
+.B room, area, account, obs, pk, rtc, danmaku, convert
+Run a named operation. Use
+.B schema
+for the complete operation and argument catalogue.
+.TP
+.B call METHOD --args JSON
+Invoke an operation with a JSON object. Use
+.B --args -
+to read the object from standard input.
+.TP
+.B rtc preview-local
+Keep a local OBS picture preview running in the foreground until Ctrl-C.
+Audio monitoring requires an explicit --arg audio=true. The companion OBS
+capture plugin and FFplay are required.
+.TP
+.B schema
+Print all registered operation names and JSON input schemas.
+.TP
+.B doctor
+Print local application and dependency capabilities.
+.TP
+.B mcp
+Serve MCP over standard input/output. Diagnostic messages go to stderr.
+.TP
+.B serve [--listen 127.0.0.1:18779]
+Serve local HTTP MCP and control endpoints. The listener requires a loopback
+address. Requests require a Bearer token except for the health endpoint.
+.TP
+.B zuse run FILE
+Preflight and execute a bounded native zuse program.
+.TP
+.B zuse check FILE
+Parse and validate the complete program without executing operations.
+.TP
+.B zuse eval SOURCE
+Preflight and execute an inline zuse program.
+.SH OPTIONS
+.TP
+.B --config-dir PATH
+Use an isolated preferences directory.
+.TP
+.B --endpoint URL
+Dispatch CLI operations, login and zuse to an existing local session using
+/api/call. Supply its token through BILIBILIVE_API_TOKEN. The URL must be an
+HTTP origin with a literal loopback IP, without credentials, path, query or
+fragment. The client disables proxies and redirects. The target process owns
+the account and configuration; set --config-dir on that process at startup.
+.TP
+.B --cookie-file PATH
+Read temporary credentials from a file. A path of - reads standard input.
+.TP
+.B --read-only
+Reject operations that change application or remote platform state.
+.TP
+.B --show-secrets
+Explicitly include returned stream keys in command output. Default CLI
+presentation redacts credential fields.
+.TP
+.B --json
+Print compact JSON.
+.TP
+.B --arg KEY=VALUE
+Add a typed JSON operation argument. May be repeated.
+.TP
+.B --compat
+Enable the legacy unauthenticated /api/startLive and /api/stopLive routes on
+the loopback HTTP listener.
+.TP
+.B --help
+Display commands and options.
+.TP
+.B --version
+Display the package version.
+.SH ENVIRONMENT
+.TP
+.B BILIBILIVE_COOKIE
+Temporary session Cookie header, instead of an OS-stored account credential.
+.TP
+.B BILIBILIVE_OBS_PASSWORD
+Temporary OBS WebSocket password.
+.TP
+.B BILIBILIVE_API_TOKEN
+HTTP Bearer token, at least 24 characters. If omitted, the local server
+generates a token and prints it on startup. An --endpoint client requires
+the target server's token in this variable.
+.TP
+.B BILIBILIVE_GUI_FRAMES
+Exit the desktop after the specified positive number of rendered frames;
+intended for isolated GUI verification.
+.SH EXAMPLES
+.nf
+bilibilive login --name daily
+bilibilive room update --title 'Today' --area 371
+bilibilive start --protocol srt --strategy fallback
+bilibilive stream --show-secrets
+bilibilive call obs.configure --args -
+bilibilive mcp --read-only
+bilibilive zuse check studio.zuse
+bilibilive zuse run studio.zuse
+bilibilive gui --listen 127.0.0.1:18779
+bilibilive --endpoint http://127.0.0.1:18779 rtc status
+bilibilive rtc preview-local --arg audio=true --arg volume=40
+.fi
+.SH NOTES
+Platform permissions and identity checks remain controlled by Bilibili.
+Strict SRT can leave a successfully started room without a usable SRT
+endpoint; that result explicitly reports the already-live room.
+The full StartLive compatibility and verification matrix accompanies the
+source distribution.
+.PP
+RTC, preview, event connections and OBS observers belong to their creating
+process. Ordinary local CLI calls close these resources on exit. Use the same
+--endpoint for a sequence of stateful media commands, or use the foreground
+preview/watch commands. HTTP MCP at /mcp shares the same persistent session.
+.SH SEE ALSO
+.UR https://github.com/LIghtJUNction/bilibilive
+Project source and release documentation
+.UE
+.SH LICENSE
+GPL-3.0-only. See LICENSE, NOTICE and the OBS plugin attribution.
