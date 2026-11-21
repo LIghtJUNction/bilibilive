@@ -15,8 +15,9 @@ const PANEL: u32 = colors::SURFACE;
 const INK: u32 = colors::TEXT;
 const MUTED: u32 = colors::MUTED;
 const ACCENT: u32 = colors::BLUE;
+const ACCENT_SOFT: u32 = colors::BLUE_PALE;
 const HAIRLINE: u32 = colors::LINE;
-const GREEN: u32 = colors::GREEN;
+const SUCCESS: u32 = colors::GREEN;
 const RED: u32 = colors::RED;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1589,7 +1590,7 @@ impl Desktop {
         {
             let y = 132. + index as f32 * 53.;
             if page == self.page {
-                canvas.rect(Rect::new(19., y, 182., 43.), 11., colors::BLUE_PALE);
+                canvas.rect(Rect::new(19., y, 182., 43.), 11., ACCENT_SOFT);
                 canvas.rect(Rect::new(19., y + 13., 3., 17.), 1.5, ACCENT);
             }
             nav_icon(
@@ -1625,7 +1626,7 @@ impl Desktop {
         canvas.rect(
             Rect::new(31., height - 68., 29., 29.),
             14.5,
-            colors::BLUE_PALE,
+            ACCENT_SOFT,
         );
         let initial = active_name.chars().next().unwrap_or('B').to_string();
         canvas.text(&initial, 40., height - 63., 14, true, ACCENT);
@@ -1648,7 +1649,7 @@ impl Desktop {
         canvas.text(self.page.eyebrow(), x, 35., 10, false, MUTED);
         canvas.text(self.page.label(), x, 62., 28, true, INK);
         if self.demo {
-            pill(canvas, width - 128., 38., "DEMO", ACCENT, colors::BLUE_PALE);
+            pill(canvas, width - 128., 38., "DEMO", ACCENT, ACCENT_SOFT);
         } else if self.pending > 0 {
             pill(
                 canvas,
@@ -1656,10 +1657,10 @@ impl Desktop {
                 38.,
                 "正在处理",
                 ACCENT,
-                colors::BLUE_PALE,
+                ACCENT_SOFT,
             );
         } else {
-            canvas.rect(Rect::new(width - 120., 45., 5., 5.), 2.5, GREEN);
+            canvas.rect(Rect::new(width - 120., 45., 5., 5.), 2.5, SUCCESS);
             canvas.text("准备就绪", width - 106., 39., 11, false, MUTED);
         }
         if self.verification.is_null() {
@@ -1690,7 +1691,7 @@ impl Desktop {
                     content_width - 26.,
                     12,
                     false,
-                    if *success { GREEN } else { RED },
+                    if *success { SUCCESS } else { RED },
                 );
             }
         }
@@ -1710,7 +1711,7 @@ impl Desktop {
             x + 27.,
             149.,
             if live { "正在直播" } else { "待开播" },
-            if live { GREEN } else { MUTED },
+            if live { SUCCESS } else { MUTED },
             if live { 0xe6f4eaff } else { 0xf0f4faff },
         );
         let room_id = text(&self.room, &["room_id", "roomid"]);
@@ -1939,7 +1940,7 @@ impl Desktop {
                 canvas.rect(
                     Rect::new(activity_x, y + 5., 5., 5.),
                     2.5,
-                    if *success { GREEN } else { RED },
+                    if *success { SUCCESS } else { RED },
                 );
                 canvas.ellipsis(
                     label,
@@ -2177,7 +2178,7 @@ impl Desktop {
             let y = 308. + index as f32 * 44.;
             let selected = self.area_id == id.to_string();
             if selected {
-                canvas.rect(Rect::new(right_x, y, right, 39.), 9., colors::BLUE_PALE);
+                canvas.rect(Rect::new(right_x, y, right, 39.), 9., ACCENT_SOFT);
             }
             let label = shorten(name, 23);
             if ui.button(
@@ -2803,7 +2804,7 @@ impl Desktop {
                     right_x + right - 88.,
                     y + 12.,
                     "使用中",
-                    GREEN,
+                    SUCCESS,
                     0xe6f4eaff,
                 );
             }
@@ -3606,7 +3607,7 @@ impl Desktop {
         {
             let rect = Rect::new(x, 222. + index as f32 * 41., left, 36.);
             if operation.name == self.advanced_name {
-                canvas.rect(rect, 9., colors::BLUE_PALE);
+                canvas.rect(rect, 9., ACCENT_SOFT);
             }
             if ui.button(
                 canvas,
@@ -3943,22 +3944,39 @@ fn payload(value: &Value) -> &Value {
 fn palette(theme: Theme) -> Palette {
     let mut palette = Palette::for_theme(theme);
     if theme == Theme::Dark {
-        palette.background = 0x0b0e13ff;
-        palette.surface = 0x111720ff;
-        palette.text = 0xeaf0f8ff;
-        palette.muted = 0x8b98abff;
-        palette.line = 0x242e3bff;
-        palette.accent = 0xb4c9ffff;
-        palette.accent_hover = 0xc8d7ffff;
-        palette.accent_soft = 0x1c2b46ff;
-        palette.hover = 0x1a2331ff;
-        palette.success = 0x91d9b4ff;
-        palette.success_soft = 0x153027ff;
-        palette.danger = 0xffaca5ff;
-        palette.danger_soft = 0x352324ff;
-        palette.disabled_surface = 0x171e28ff;
-        palette.disabled_text = 0x627086ff;
-        palette.on_accent = 0x111928ff;
+        palette.background = 0x121110ff;
+        palette.surface = 0x1b1917ff;
+        palette.text = 0xf1eae2ff;
+        palette.muted = 0xa69b90ff;
+        palette.line = 0x342e28ff;
+        palette.accent = 0xd59b76ff;
+        palette.accent_hover = 0xe3af8bff;
+        palette.accent_soft = 0x3b2a22ff;
+        palette.hover = 0x29241fff;
+        palette.success = 0xc6b18cff;
+        palette.success_soft = 0x30291eff;
+        palette.danger = 0xd9a294ff;
+        palette.danger_soft = 0x3b2722ff;
+        palette.disabled_surface = 0x23201cff;
+        palette.disabled_text = 0x7c7268ff;
+        palette.on_accent = 0x241a14ff;
+    } else {
+        palette.background = 0xf5f2edff;
+        palette.surface = 0xfffcf7ff;
+        palette.text = 0x2c2824ff;
+        palette.muted = 0x766b63ff;
+        palette.line = 0xddd5caff;
+        palette.accent = 0x974f33ff;
+        palette.accent_hover = 0x834127ff;
+        palette.accent_soft = 0xf0e1d6ff;
+        palette.hover = 0xebe5ddff;
+        palette.success = 0x795c30ff;
+        palette.success_soft = 0xf0e7d7ff;
+        palette.danger = 0xa64b3dff;
+        palette.danger_soft = 0xf4e1dbff;
+        palette.disabled_surface = 0xede8e1ff;
+        palette.disabled_text = 0x9a8e82ff;
+        palette.on_accent = 0xfff9f1ff;
     }
     palette
 }
@@ -4226,7 +4244,7 @@ fn draw_qr(canvas: &mut Canvas<'_>, code: &QrCode, x: f32, y: f32, max_size: f32
                         cell,
                     ),
                     0.,
-                    0x0b0e13ff,
+                    0x211d19ff,
                 );
             }
         }
