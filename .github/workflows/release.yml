@@ -155,10 +155,11 @@ jobs:
           sudo apt-get install -y build-essential pkg-config libx11-dev libfreetype-dev libfontconfig-dev libgl1-mesa-dev cmake ninja-build libobs-dev qt6-base-dev libsimde-dev xvfb ffmpeg
       - name: Install macOS native build dependencies
         if: runner.os == 'macOS'
+        shell: python
         run: |
-          brew update
-          brew install cmake ninja meson pkgconf nasm openssl@3
-          brew upgrade cmake ninja meson pkgconf nasm openssl@3
+          import os, pathlib, subprocess, sys
+          subprocess.run([sys.executable, '-B', 'scripts/prepare-macos-tools.py',
+                          '--work', str(pathlib.Path(os.environ['RUNNER_TEMP']) / 'bilibilive-build-tools')], check=True)
       - name: Check version and locked sources
         shell: python
         run: |
@@ -186,6 +187,7 @@ jobs:
           import subprocess, sys
           subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'packaging', '-p', 'test_installer*.py'], check=True)
           subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_native_runtime.py'], check=True)
+          subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_macos_tools.py'], check=True)
       - name: Build and verify the native OBS and media payload
         shell: python
         env:
@@ -310,6 +312,7 @@ jobs:
             ${{ runner.temp }}/bilibilive-native-cache/logs/**/*.log
             ${{ runner.temp }}/bilibilive-native-cache/validation/**/*.log
             ${{ runner.temp }}/bilibilive-native-cache/validation/**/verification.json
+            ${{ runner.temp }}/bilibilive-build-tools/tools.json
             ${{ runner.temp }}/bilibilive-update-probe/verification.json
             ${{ runner.temp }}/bilibilive-update-probe/logs/*.log
             dist/*-smoke*.json

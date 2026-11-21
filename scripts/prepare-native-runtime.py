@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -609,13 +610,19 @@ def prepare_ffmpeg(plan: dict, target: str, cache: Path, jobs: int, msys: Path |
                       "source":"https://www.msys2.org/","ffmpeg_build_reference":"https://ffmpeg.org/platform.html","gpu":gpu_info}
         execution_env={"PATH":str(msys / "ucrt64/bin")+os.pathsep+str(prefix / "bin")+os.pathsep+os.environ.get("PATH","")}
     else:
-        brew = run(["brew","--prefix"])
-        dependencies=json.loads(run(["brew","info","--json=v2","--installed"],timeout=120))
-        wanted={"cmake","ninja","meson","nasm","pkgconf"}
-        formulae={x["name"]:x for x in dependencies["formulae"]}
-        require(wanted.issubset(formulae), "Install brew cmake ninja meson nasm pkgconf before preparing the runtime")
-        dependencies={"provider":"official codec source builds; Homebrew build tools","formulae":[formulae[n] for n in sorted(wanted)],
-                      "source":"https://github.com/Homebrew/homebrew-core"}
+        if receipt:=os.environ.get("BILIBILIVE_MACOS_TOOLS_RECEIPT"):
+            spec=importlib.util.spec_from_file_location("macos_tools",ROOT/"scripts/prepare-macos-tools.py")
+            require(spec is not None and spec.loader is not None,"Missing macOS tool receipt verifier")
+            tools=importlib.util.module_from_spec(spec);spec.loader.exec_module(tools)
+            dependencies={"provider":"official codec source builds; verified native runner tools",
+                          "tools":tools.verify_receipt(Path(receipt))}
+        else:
+            dependencies=json.loads(run(["brew","info","--json=v2","--installed"],timeout=120))
+            wanted={"cmake","ninja","meson","nasm","pkgconf"}
+            formulae={x["name"]:x for x in dependencies["formulae"]}
+            require(wanted.issubset(formulae), "Install brew cmake ninja meson nasm pkgconf before preparing the runtime")
+            dependencies={"provider":"official codec source builds; Homebrew build tools","formulae":[formulae[n] for n in sorted(wanted)],
+                          "source":"https://github.com/Homebrew/homebrew-core"}
         codecs, codec_info, env = prepare_codecs(plan, target, cache, jobs, None)
         run(["sh",source / "configure",f"--prefix={prefix}",*common,"--enable-videotoolbox","--enable-audiotoolbox"],cwd=build,env=env,timeout=900,log=logs/"ffmpeg-configure.log")
         run(["make",f"-j{jobs}"],cwd=build,env=env,timeout=3600,log=logs/"ffmpeg-build.log")
