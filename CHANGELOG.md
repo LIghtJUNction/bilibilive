@@ -3,7 +3,7 @@
 ## 0.1.3
 
 Release status as of 2026-11-22: **not published; real-account acceptance is
-pending**. The local `0.1.3-0.3` acceptance candidate is installed.
+pending**. The local `0.1.3-0.4` acceptance candidate is installed.
 
 - Persist an application device ID independently of Bilibili's SPI device
   cookies, matching StartLive's session model. Reuse the native `buvid`
@@ -101,16 +101,21 @@ identifies the tested executable and the separate observations from the
 preceding package. [FACE_VERIFICATION.md](docs/FACE_VERIFICATION.md) defines
 the remaining acceptance steps.
 
-The current `0.1.3-0.3` candidate includes the GUI timeout-boundary correction
-and passed **144 tests**, formatting and an optimized release build. Its
-installed executable matches the validated build. Installation made no
-account API requests and did not start the real GUI; phone verification and
-broadcasting have not been accepted on this candidate.
+The earlier `0.1.3-0.3` candidate's **144-test** result, formatting check,
+optimized build and installed identity remain in the historical receipt.
+The current `0.1.3-0.4` candidate, built from clean source `66c7346`, passed
+**144 tests** and an optimized release build. Its installed executable and
+build receipt match the validated artifacts. Installation made no account
+API requests and did not start the real GUI; real login, phone verification
+and broadcasting have not been accepted on this candidate.
 
 Real-account acceptance remains unsuccessful, and account tests are paused
-after a user-reported mobile request limit. The recorded native packaging
-preview also has unresolved macOS gates; see the session compatibility record
-for the separate observations and validation scopes.
+after a user-reported mobile request limit. At 21:08:57 UTC, preview
+[`44949165435`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44949165435)
+had passed the early OBS installation gate on all four platforms,
+including 14 Windows integration tests; Linux's full job passed while the
+other native payload builds were still running. This is a timed CI snapshot,
+not a completed all-platform or real-account acceptance result.
 
 The preceding Linux regression gate for the face-verification and interaction
 fixes passed **139 tests**: 123 library tests, 3 CLI tests and 13 integration tests,

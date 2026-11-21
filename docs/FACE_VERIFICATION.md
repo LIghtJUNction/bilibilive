@@ -7,13 +7,14 @@ must confirm that the identity check has passed.
 **Acceptance status, 2026-11-22 (Asia/Taipei): not passed; account tests are
 paused.** During a later reference-flow attempt, the user reported the mobile
 message “请求达到上限了” (request limit reached). Both the reference process
-and the bilibilive GUI used for these tests were stopped. Local `0.1.3-0.3` is
+and the bilibilive GUI used for these tests were stopped. Local `0.1.3-0.4` is
 now installed, without account API requests or starting the real GUI during
 installation. The preceding `0.1.3-0.2` candidate validated the saved account
 and obtained valid face challenges, but no passed face verification or
 successful broadcast has been observed. The session changes below correct a
-confirmed difference from StartLive; neither the original phone failure's cause nor its resolution has
-been established. The
+confirmed difference from StartLive; neither the original phone failure's
+cause nor its resolution has been established. No feedback confirming that
+the mobile restriction has cleared has been received. The
 [session compatibility record](evidence/session-compatibility-2026-11-22.json)
 identifies the source, executable and observations.
 
@@ -153,13 +154,22 @@ credentials. The earlier 139-test result in
 A later GUI timeout-boundary patch passed **144 tests**: 128 library tests,
 3 CLI tests and 13 integration tests. Its formatting check and optimized
 release build also passed. These checks ran on `8cc0ca5` plus the `src/gui.rs`
-patch subsequently committed as `8b81e0f`. That artifact is now installed as
-local package `0.1.3-0.3`: the package manager reports this version, and the
-installed `/usr/bin/bilibilive` SHA-256 matches the validated release build
-recorded in the JSON receipt. Installation made no account API requests and
-did not start the real GUI. The earlier GUI and reference processes remain
-stopped, and the expired reference QR image has been removed. Phone-side
-verification and broadcasting remain untested on `0.1.3-0.3`; these local
+patch subsequently committed as `8b81e0f`. That artifact was installed as
+local package `0.1.3-0.3`, with its package-manager version and executable
+SHA-256 confirmed. Those checks and the installation identity remain in the
+JSON receipt as historical evidence. Installation made no account API
+requests, and the real GUI was not started; phone verification and
+broadcasting were not accepted on that candidate.
+
+The current `0.1.3-0.4` candidate was built from clean source `66c7346` and
+passed **144 tests**: 128 library tests, 3 CLI tests and 13 integration tests.
+The test stage completed in 11.99 seconds and the optimized release build in
+56.54 seconds. Its installed executable SHA-256 matches the build artifact,
+and `/usr/share/doc/bilibilive/build-receipt.json` matches the build receipt.
+Installation made no account API requests and did not start the real GUI.
+The earlier GUI and reference processes remain stopped, and the expired
+reference QR image has been removed. Real account authentication, phone
+verification and broadcasting remain untested on `0.1.3-0.4`; these local
 checks do not establish that the original phone failure has been resolved.
 
 The following real-account observations have a narrower scope than a complete
@@ -231,14 +241,24 @@ Acceptance passes only after all four steps. Formal publication also requires
 the native packaging gates to pass; a local installation or a workflow with
 `publish=false` is not a published release.
 
-The packaging record is a historical snapshot. In preview
-[`44943947406`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44943947406)
-at source `8cc0ca5`, Linux passed and macOS tool preparation completed in
-10 and 31 seconds. All ARM FFplay previews passed, but Intel macOS used SDK
-15.5 where OBS required 26.5, and ARM code signing rejected an unsealed plugin
-bundle root. Windows was still running at that observation. These gates were
-addressed by follow-up packaging commit `8cef8e3`, whose native gate results
-are not yet recorded here. There is no formal `v0.1.3` release in this record.
+Packaging results below are snapshots, separate from real-account acceptance;
+older preview observations remain in the JSON receipt. In preview
+[`44946465336`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44946465336)
+at source `ed807c2`, Linux and macOS ARM jobs completed successfully, including
+ARM installation and update/restart checks. Intel's native payload step passed
+at 20:58:38 UTC, while its later Rust gates were incomplete at the recorded
+observation. That run's Windows source still contained the installation path
+bug, so this was not an all-platform pass.
+
+In preview
+[`44949165435`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44949165435)
+at clean source `66c7346`, the 21:08:57 UTC snapshot showed the early OBS
+installation integration step passing on all four platforms. Windows passed
+all 14 tests, including ordinary and verbatim paths, rejection of a bare
+drive prefix, and junction rejection. Linux's full job had succeeded; the
+other three platforms were in native payload step 15. This `publish=false`
+run had not completed every platform's gates at that snapshot. There is no
+formal `v0.1.3` release in this record.
 
 If the phone reports an error, record its visible wording and whether the
 camera/face screen opened, together with the current sanitized platform
