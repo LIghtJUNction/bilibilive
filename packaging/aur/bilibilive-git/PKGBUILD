@@ -7,6 +7,8 @@ pkgdesc='Native Bilibili streaming studio following the latest Project Z sources
 arch=('x86_64' 'aarch64')
 url='https://github.com/LIghtJUNction/bilibilive'
 license=('GPL-3.0-only')
+# Keep aws-lc/zgpui C objects linkable; Cargo retains its own thin LTO.
+options=('!lto')
 makedepends=('cargo' 'git' 'pkgconf' 'libx11' 'freetype2' 'fontconfig' 'libglvnd'
              'cmake' 'ninja' 'obs-studio' 'qt6-base' 'simde')
 source=('bilibilive::git+https://github.com/LIghtJUNction/bilibilive.git')
