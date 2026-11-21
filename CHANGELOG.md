@@ -3,7 +3,7 @@
 ## 0.1.3
 
 Release status as of 2026-11-22: **not published; real-account acceptance is
-pending**. The local `0.1.3-0.2` package is an acceptance candidate.
+pending**. The local `0.1.3-0.3` acceptance candidate is installed.
 
 - Persist an application device ID independently of Bilibili's SPI device
   cookies, matching StartLive's session model. Reuse the native `buvid`
@@ -84,10 +84,10 @@ pending**. The local `0.1.3-0.2` package is an acceptance candidate.
   actions. Project Z Git declarations remain on their default branches;
   dependency updates retain the local validation and explicit release gates.
 
-The session-compatibility candidate passed **142 tests**: 126 library tests,
-3 CLI tests and 13 integration tests, using Rust 1.100.0 and
+The preceding `0.1.3-0.2` session-compatibility candidate passed **142 tests**:
+126 library tests, 3 CLI tests and 13 integration tests, using Rust 1.100.0 and
 `cargo test --locked --offline`. Formatting and the optimized release build
-also passed. The installed candidate authenticated the saved account and
+also passed. That candidate authenticated the saved account and
 obtained a valid new face challenge. That challenge expired while awaiting
 the user's phone result, so successful phone verification and broadcasting
 remain unconfirmed. The
@@ -96,8 +96,16 @@ identifies the tested executable and the separate observations from the
 preceding package. [FACE_VERIFICATION.md](docs/FACE_VERIFICATION.md) defines
 the remaining acceptance steps.
 
-The native packaging preview is still running. The dependency and FFplay
-check corrections above do not yet establish that every platform has passed.
+The current `0.1.3-0.3` candidate includes the GUI timeout-boundary correction
+and passed **144 tests**, formatting and an optimized release build. Its
+installed executable matches the validated build. Installation made no
+account API requests and did not start the real GUI; phone verification and
+broadcasting have not been accepted on this candidate.
+
+Real-account acceptance remains unsuccessful, and account tests are paused
+after a user-reported mobile request limit. The recorded native packaging
+preview also has unresolved macOS gates; see the session compatibility record
+for the separate observations and validation scopes.
 
 The preceding Linux regression gate for the face-verification and interaction
 fixes passed **139 tests**: 123 library tests, 3 CLI tests and 13 integration tests,

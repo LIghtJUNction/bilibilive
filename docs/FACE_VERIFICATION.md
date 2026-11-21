@@ -4,12 +4,16 @@ bilibilive prepares Bilibili's verification session before presenting a QR
 code. A successful phone scan alone does not start the broadcast: the platform
 must confirm that the identity check has passed.
 
-**Acceptance status, 2026-11-22 (Asia/Taipei): pending.** The installed
-`0.1.3-0.2` candidate validates the saved account and obtains a valid face
-challenge. A successful phone verification followed by an actual broadcast
-has not yet been observed on this candidate. The session changes below correct
-a confirmed difference from StartLive; their effect on the reported phone
-failure still needs that check. The
+**Acceptance status, 2026-11-22 (Asia/Taipei): not passed; account tests are
+paused.** During a later reference-flow attempt, the user reported the mobile
+message “请求达到上限了” (request limit reached). Both the reference process
+and the bilibilive GUI used for these tests were stopped. Local `0.1.3-0.3` is
+now installed, without account API requests or starting the real GUI during
+installation. The preceding `0.1.3-0.2` candidate validated the saved account
+and obtained valid face challenges, but no passed face verification or
+successful broadcast has been observed. The session changes below correct a
+confirmed difference from StartLive; neither the original phone failure's cause nor its resolution has
+been established. The
 [session compatibility record](evidence/session-compatibility-2026-11-22.json)
 identifies the source, executable and observations.
 
@@ -137,14 +141,26 @@ fixtures cover cancellation, old responses and continuation with changed
 on-screen room preferences. An App fixture checks account changes before a
 verified retry reaches any network request.
 
-The current Linux candidate passed **142 tests** with Rust 1.100.0 and
-`cargo test --locked --offline`: 126 library tests, 3 CLI tests and 13
+The preceding `0.1.3-0.2` Linux candidate passed **142 tests** with Rust 1.100.0
+and `cargo test --locked --offline`: 126 library tests, 3 CLI tests and 13
 integration tests. Formatting and the optimized release build also passed.
 The new checks cover persistent application identity, concurrent first
 creation, account/anonymous isolation, and native-header continuity after SPI
 refresh and frontend recreation. These automated checks use synthetic
 credentials. The earlier 139-test result in
 [VALIDATION.md](VALIDATION.md) belongs to the preceding runtime snapshot.
+
+A later GUI timeout-boundary patch passed **144 tests**: 128 library tests,
+3 CLI tests and 13 integration tests. Its formatting check and optimized
+release build also passed. These checks ran on `8cc0ca5` plus the `src/gui.rs`
+patch subsequently committed as `8b81e0f`. That artifact is now installed as
+local package `0.1.3-0.3`: the package manager reports this version, and the
+installed `/usr/bin/bilibilive` SHA-256 matches the validated release build
+recorded in the JSON receipt. Installation made no account API requests and
+did not start the real GUI. The earlier GUI and reference processes remain
+stopped, and the expired reference QR image has been removed. Phone-side
+verification and broadcasting remain untested on `0.1.3-0.3`; these local
+checks do not establish that the original phone failure has been resolved.
 
 The following real-account observations have a narrower scope than a complete
 acceptance pass. Relative times are measured from the captured QR image.
@@ -157,13 +173,48 @@ acceptance pass. Relative times are measured from the captured QR image.
 | `0.1.3-0.2` | Running executable matched the recorded build; `auth.validate` returned `authenticated=true` | The updated installation could authenticate the saved account |
 | `0.1.3-0.2` | At 0.78 s, `moreInfo` succeeded and polling returned `status=0` | The corrected session obtained a valid new challenge |
 | `0.1.3-0.2` | No phone result was received before the check at 125.07 s; `moreInfo` then reported expiry and polling returned `status=2` | The challenge expired while awaiting feedback; the candidate's phone-verification outcome remains unconfirmed |
+| `0.1.3-0.2` | At about 20:02 UTC, the user again reported “测试了，不行！” (tested it; still does not work) | Acceptance remains unsuccessful. This report was not clearly associated with a freshly created and sampled challenge, so its cause cannot be attributed to QR expiry |
+
+### Direct StartLive-function diagnostic
+
+At about 20:07 UTC, an independent diagnostic directly invoked the original
+session, signing, start, registration, report, polling and codec functions
+from the fixed StartLive commit cited above. It reused the same saved account
+and native application device ID. This exercised upstream protocol functions;
+it did not run or validate the complete StartLive GUI.
+
+The first reference attempt received HTTP 200 for start (`60043`),
+registration (`0`) and `ReportFaceRecognition` (`0`). Polling remained at
+`status=0` through 109.8 seconds and returned `status=2` at 121.22 seconds;
+`verified` remained false. The user later reported that the displayed white
+reference QR was expired. There was no confirmation of a completed phone
+attempt with that code, so this is neither a reproduction of the original
+mobile authentication error nor a successful reference acceptance.
+
+A second reference QR was then displayed. Start, registration and report
+again returned the same codes. Polling returned `status=0` at 0.74, 16.40,
+32.07, 47.83, 63.49, 79.21 and 94.87 seconds. During this attempt, the user
+explicitly reported “请求达到上限了”. The reference job was cancelled at about
+100.5 seconds, its QR viewer was closed, and the bilibilive GUI used for the
+tests was stopped. No platform verification pass or successful broadcast was
+observed. Times in this paragraph and the preceding paragraph are elapsed
+times reported by their respective diagnostic runs.
+
+The limit is a phone-side user report; the recorded polling responses still
+showed a pending challenge. Its recovery time is unknown. Account-side tests
+are paused: no further account requests, replacement QR codes or device-ID
+changes are being used to continue these attempts. Offline code and packaging
+validation can continue. Real-account acceptance must resume with the user
+after the restriction has cleared.
 
 These observations do not establish that mixing device identities caused the
 original phone failure, or that separating them has resolved it. A valid new
 challenge, passing fixtures, and an expired unanswered challenge do not
 replace the required real-account result.
 
-To check the installed application:
+### Remaining acceptance
+
+After the restriction has cleared, check the installed application:
 
 1. Confirm that the running executable matches the candidate receipt and that
    the selected account validates successfully.
@@ -179,6 +230,15 @@ To check the installed application:
 Acceptance passes only after all four steps. Formal publication also requires
 the native packaging gates to pass; a local installation or a workflow with
 `publish=false` is not a published release.
+
+The packaging record is a historical snapshot. In preview
+[`44943947406`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44943947406)
+at source `8cc0ca5`, Linux passed and macOS tool preparation completed in
+10 and 31 seconds. All ARM FFplay previews passed, but Intel macOS used SDK
+15.5 where OBS required 26.5, and ARM code signing rejected an unsealed plugin
+bundle root. Windows was still running at that observation. These gates were
+addressed by follow-up packaging commit `8cef8e3`, whose native gate results
+are not yet recorded here. There is no formal `v0.1.3` release in this record.
 
 If the phone reports an error, record its visible wording and whether the
 camera/face screen opened, together with the current sanitized platform

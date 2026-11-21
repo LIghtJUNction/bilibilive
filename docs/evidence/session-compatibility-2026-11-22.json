@@ -3,8 +3,8 @@
   "record_date": "2026-11-22",
   "record_date_timezone": "Asia/Taipei",
   "repository": "https://github.com/LIghtJUNction/bilibilive",
-  "scope": "Session compatibility correction, Linux automated validation, installed-candidate identity and real-account observations before acceptance",
-  "acceptance_status": "pending_user_phone_verification_and_broadcast",
+  "scope": "Session compatibility correction, separate historical and current installed runtime validation, direct upstream-function diagnostics and real-account observations before acceptance",
+  "acceptance_status": "not_passed_account_tests_paused_after_user_reported_mobile_request_limit",
   "root_cause_of_original_phone_failure": "not_established",
   "reference": {
     "repository": "https://github.com/Radekyspec/StartLive",
@@ -24,6 +24,7 @@
     "phone_failure_causality_verified": false
   },
   "candidate": {
+    "record_scope": "Historical installed 0.1.3-0.2 candidate and its real-account observations",
     "application_version": "0.1.3",
     "local_package_version": "0.1.3-0.2",
     "matched_source_commit": "5e89476e33b7e76542e922f7a08604e508ecb182",
@@ -40,7 +41,22 @@
       "lock_status": 0
     }
   },
+  "current_candidate_installation": {
+    "application_version": "0.1.3",
+    "local_package_version": "0.1.3-0.3",
+    "package_manager": "pacman",
+    "installed_package_report": "bilibilive 0.1.3-0.3",
+    "runtime_source_commit": "8b81e0fcc9b69b7f6e904f9fbfba7d0440acb137",
+    "executable_path_on_development_host": "/usr/bin/bilibilive",
+    "binary_sha256": "87b0b96cb872ed6e68981a8f03a4d096ded4be720c7491238e619535b18d1757",
+    "installed_binary_matches_144_test_release_artifact": true,
+    "account_api_requests_during_installation": 0,
+    "real_gui_started": false,
+    "phone_verification_acceptance": "not_performed",
+    "broadcast_acceptance": "not_performed"
+  },
   "automated_checks": {
+    "scope": "Completed checks for the recorded installed 0.1.3-0.2 runtime; excludes the later GUI timeout-boundary patch",
     "environment": "Linux development host",
     "rust_version": "1.100.0",
     "offline_build": true,
@@ -69,6 +85,30 @@
       "profile_device_identity_survives_frontend_recreation_and_account_clients"
     ],
     "updated_protocol_fixture": "initialized_device_cookies_survive_new_clients_through_face_verification"
+  },
+  "later_gui_timeout_patch_checks": {
+    "source_base_commit": "8cc0ca59728bb1d4a69587b6e50372a437cdbfc4",
+    "tested_working_tree_patch_files": [
+      "src/gui.rs"
+    ],
+    "matching_patch_commit": "8b81e0fcc9b69b7f6e904f9fbfba7d0440acb137",
+    "checks_ran_before_patch_commit": true,
+    "environment": "Original Linux development host",
+    "format_check_passed": true,
+    "tests": {
+      "library_passed": 128,
+      "cli_passed": 3,
+      "integration_passed": 13,
+      "total_passed": 144,
+      "failed": 0
+    },
+    "optimized_release_build": {
+      "passed": true,
+      "duration_seconds": 65.71
+    },
+    "validated_artifact_installed_as": "0.1.3-0.3",
+    "installation_record": "current_candidate_installation",
+    "phone_failure_resolution_verified": false
   },
   "real_account_observations": {
     "timing_basis": "Seconds since the QR image was captured; timing values do not define a general platform expiry limit",
@@ -120,7 +160,7 @@
         "poll_data_status": 0,
         "verified": false
       },
-      "phone_feedback_received": false,
+      "phone_feedback_received_for_initial_challenge": false,
       "later_challenge_check": {
         "qr_capture_age_seconds": 125.07,
         "more_info_http_status": 200,
@@ -129,13 +169,95 @@
         "poll_data_status": 2,
         "verified": false
       },
-      "conclusion": "The challenge expired while awaiting user feedback; this does not establish either successful phone verification or a reproduced phone failure on the candidate",
+      "initial_challenge_conclusion": "This timed challenge expired while awaiting user feedback; it does not explain a later phone failure report or establish successful verification",
+      "later_user_feedback": {
+        "approximate_time_utc": "20:02",
+        "reported_message": "测试了，不行！",
+        "reported_result": "still_does_not_work",
+        "association_with_fresh_sampled_challenge_confirmed": false,
+        "operator_replacement_qr_handoff_completed": false,
+        "user_may_have_refreshed_qr_independently": "unconfirmed",
+        "qr_expiry_established_as_cause": false,
+        "conclusion": "The candidate has not passed acceptance; the reported attempt cannot be attributed to QR expiry from the available observations"
+      },
       "successful_broadcast_observed": false
+    },
+    "direct_startlive_function_diagnostic": {
+      "reference_commit": "0b5a9830a8305d9cd6ac15378e46bee05b894c11",
+      "execution_scope": "Direct invocation of original upstream session, signing, start, registration, report, polling and codec functions",
+      "complete_startlive_gui_exercised": false,
+      "same_saved_account": true,
+      "same_native_application_device_id": true,
+      "timing_basis": "Elapsed times reported by each independent diagnostic run; separate from the QR-capture ages above",
+      "first_reference_attempt": {
+        "approximate_start_time_utc": "20:07",
+        "start": {
+          "http_status": 200,
+          "code": 60043
+        },
+        "registration": {
+          "http_status": 200,
+          "code": 0
+        },
+        "report_face_recognition": {
+          "http_status": 200,
+          "code": 0
+        },
+        "last_pending_poll": {
+          "elapsed_seconds": 109.8,
+          "data_status": 0
+        },
+        "final_poll": {
+          "elapsed_seconds": 121.22,
+          "data_status": 2,
+          "verified": false
+        },
+        "later_user_feedback": "过期了",
+        "completed_phone_attempt_confirmed": false,
+        "original_mobile_authentication_failure_reproduced": "not_established",
+        "reference_end_to_end_acceptance_passed": false
+      },
+      "second_reference_attempt": {
+        "new_reference_qr_displayed": true,
+        "start_code": 60043,
+        "registration_code": 0,
+        "report_face_recognition_code": 0,
+        "pending_poll_observations": {
+          "elapsed_seconds": [0.74, 16.4, 32.07, 47.83, 63.49, 79.21, 94.87],
+          "data_status_for_all_observations": 0
+        },
+        "user_feedback": {
+          "reported_message": "请求达到上限了",
+          "scope": "User-reported mobile request limit during this reference attempt",
+          "same_result_confirmed_by_polling_api": false
+        },
+        "stopped_at_approximate_elapsed_seconds": 100.5,
+        "reference_job_cancelled": true,
+        "reference_qr_viewer_closed": true,
+        "owned_bilibilive_gui_stopped": true,
+        "platform_verification_pass_observed": false,
+        "successful_broadcast_observed": false,
+        "conclusion": "A mobile request limit was reported and account-side tests were stopped; this does not establish the cause or resolution of the original authentication failure"
+      }
     }
   },
+  "account_test_pause": {
+    "status": "paused",
+    "reason": "User-reported mobile request limit",
+    "recovery_time": "unknown",
+    "account_requests_continuing": false,
+    "qr_refreshes_continuing": false,
+    "device_identity_changes_to_continue_testing": false,
+    "owned_real_gui_and_reference_processes_stopped": true,
+    "expired_reference_qr_image_removed": true,
+    "remaining_work_scope": "Offline code and packaging validation",
+    "resume_requirement": "Restriction has cleared and the user can complete real-account face verification and broadcast acceptance"
+  },
   "required_acceptance": {
-    "running_binary_matches_candidate": "passed",
-    "saved_account_authenticates": "passed",
+    "scope": "Current installed 0.1.3-0.3 candidate; earlier account authentication results remain historical",
+    "installed_binary_matches_validated_artifact": "passed",
+    "running_binary_matches_candidate": "pending_real_gui_not_started",
+    "saved_account_authenticates": "pending_current_candidate_account_tests_paused",
     "face_verification_is_confirmed_by_platform": "pending",
     "original_start_resumes_automatically": "pending",
     "room_live_status_equals_one": "pending",
@@ -144,9 +266,44 @@
   },
   "publication": {
     "formal_release_published": false,
-    "preview_run": "https://github.com/LIghtJUNction/bilibilive/actions/runs/44941564775",
-    "preview_publish_input": false,
-    "preview_latest_recorded_state": "in_progress",
+    "formal_v0_1_3_release_exists": false,
+    "preview_records_are_historical_snapshots": true,
+    "preview_snapshots": [
+      {
+        "run": "https://github.com/LIghtJUNction/bilibilive/actions/runs/44941564775",
+        "publish_input": false,
+        "state_at_earlier_observation": "in_progress"
+      },
+      {
+        "run": "https://github.com/LIghtJUNction/bilibilive/actions/runs/44943947406",
+        "source_commit": "8cc0ca59728bb1d4a69587b6e50372a437cdbfc4",
+        "publish_input": false,
+        "linux": "success",
+        "macos_tool_preparation": {
+          "status": "passed",
+          "observed_step_durations_seconds": [10, 31]
+        },
+        "macos_intel": {
+          "status": "failed",
+          "observed_sdk_version": "15.5",
+          "obs_required_sdk_version": "26.5",
+          "blocker": "Runner SDK is below the OBS build requirement"
+        },
+        "macos_arm": {
+          "all_ffplay_previews_passed": true,
+          "status": "failed",
+          "blocker": "Code signing rejected the unsealed OBS plugin bundle root"
+        },
+        "windows_state_at_observation": "in_progress",
+        "corrections_in_progress_at_observation": true,
+        "all_platform_gates_passed": false
+      }
+    ],
+    "follow_up_packaging_correction": {
+      "commit": "8cef8e31b8ac409dc4d68cb3056ccf202a7ba914",
+      "scope": "macOS runner and plugin bundle signing corrections",
+      "native_gate_results_recorded": false
+    },
     "release_requirements": [
       "Real-account acceptance completes successfully",
       "Native packaging gates pass for the intended release artifacts"
