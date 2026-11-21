@@ -47,6 +47,7 @@ struct PendingUpdateReply {
 }
 struct Inner {
     directory: PathBuf,
+    native_buvid: String,
     state: Mutex<State>,
     account_gate: Mutex<()>,
     software_gate: Mutex<()>,
@@ -85,11 +86,14 @@ impl App {
     pub fn new(directory: Option<PathBuf>) -> Result<Self, String> {
         let directory = directory.unwrap_or_else(config::default_dir);
         let config = Config::load(&directory)?;
+        let native_buvid =
+            config::load_or_create_device_buvid(&directory, crate::bili::generated_buvid)?;
         let updater = crate::updater::Updater::new(directory.clone());
         let protocol_profiles = crate::protocol_profile::ProtocolProfiles::new(&directory);
         let app = Self {
             inner: Arc::new(Inner {
                 directory,
+                native_buvid,
                 state: Mutex::new(State {
                     config,
                     cookie_override: std::env::var("BILIBILIVE_COOKIE").ok(),
@@ -312,10 +316,11 @@ impl App {
         })
     }
     fn client_for_config(&self, cookie: &str, cfg: &Config) -> Result<BiliClient, String> {
-        BiliClient::with_profile(
+        BiliClient::with_profile_and_buvid(
             cookie,
             self.bili_options(cfg)?,
             self.inner.protocol_profiles.snapshot()?,
+            &self.inner.native_buvid,
         )
     }
     fn client(&self) -> Result<BiliClient, String> {
@@ -335,7 +340,7 @@ impl App {
         }
         // QR login does not always issue device cookies. Persist the official
         // initialization before starting a challenge, so later face.poll calls
-        // do not each construct a client with a different fallback device ID.
+        // reuse its SPI cookies as well as the profile's stable native identity.
         let mut refreshed = client.call("auth.refresh", &json!({})).map_err(|error| {
             format!("Could not initialize the Bilibili broadcast session: {error}")
         })?;
@@ -1686,6 +1691,38 @@ mod account_lease_tests {
     }
     fn cookie(secret: &str) -> String {
         format!("DedeUserID=111; SESSDATA={secret}; bili_jct=fixture-csrf; buvid3=fixture-device")
+    }
+
+    #[test]
+    fn profile_device_identity_survives_frontend_recreation_and_account_clients() {
+        let mut fixture = Fixture::new();
+        let first = fixture.app();
+        let native = first
+            .client_with_cookie("")
+            .unwrap()
+            .device_buvid()
+            .to_owned();
+        assert_eq!(
+            first
+                .client_with_cookie(&cookie("fixture-secret"))
+                .unwrap()
+                .device_buvid(),
+            native
+        );
+        assert_ne!(native, "fixture-device");
+        let second = fixture.app();
+        assert_eq!(
+            second.client_with_cookie("").unwrap().device_buvid(),
+            native
+        );
+        assert!(!second.snapshot().to_string().contains(&native));
+        drop(first);
+        drop(second);
+        let restarted = fixture.app();
+        assert_eq!(
+            restarted.client_with_cookie("").unwrap().device_buvid(),
+            native
+        );
     }
 
     #[test]

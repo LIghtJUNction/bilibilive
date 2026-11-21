@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
 };
 
@@ -29,6 +29,85 @@ pub fn lock_profile(directory: &Path) -> Result<ProfileLock, String> {
     file.lock()
         .map_err(|e| format!("Cannot lock the configuration profile: {e}"))?;
     Ok(ProfileLock(file))
+}
+
+#[derive(Serialize, Deserialize)]
+struct DeviceMetadata {
+    native_buvid: String,
+}
+
+/// Device identity belongs to the installation profile, independently of any
+/// account or preference snapshot. Serialize first creation across CLI/GUI
+/// processes, and never rotate an existing identity while saving settings.
+pub(crate) fn load_or_create_device_buvid(
+    directory: &Path,
+    generate: impl FnOnce() -> String,
+) -> Result<String, String> {
+    let _profile = lock_profile(directory)?;
+    let (device, created) = match fs::File::open(directory.join("device.json")) {
+        Ok(file) => {
+            let mut bytes = Vec::new();
+            file.take(1025)
+                .read_to_end(&mut bytes)
+                .map_err(|e| format!("Cannot read device identity: {e}"))?;
+            if bytes.len() > 1024 {
+                return Err("Device identity exceeds 1 KiB".into());
+            }
+            let device = serde_json::from_slice::<DeviceMetadata>(&bytes)
+                .map_err(|_| "Invalid stored device identity")?;
+            (device, false)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => (
+            DeviceMetadata {
+                native_buvid: generate(),
+            },
+            true,
+        ),
+        Err(error) => return Err(format!("Cannot read device identity: {error}")),
+    };
+    if device.native_buvid.is_empty()
+        || device.native_buvid.len() > 128
+        || !device
+            .native_buvid
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err("Invalid stored device identity".into());
+    }
+    if created {
+        write_json(directory, "device.json", &device)?;
+    }
+    Ok(device.native_buvid)
+}
+
+fn write_json(directory: &Path, filename: &str, value: &impl Serialize) -> Result<(), String> {
+    fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+    let mut random = [0u8; 8];
+    getrandom::fill(&mut random).map_err(|_| "OS random source unavailable")?;
+    let temporary = directory.join(format!(
+        ".{filename}-{}-{:016x}.tmp",
+        std::process::id(),
+        u64::from_ne_bytes(random)
+    ));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let result = (|| {
+        let mut file = options.open(&temporary).map_err(|e| e.to_string())?;
+        file.write_all(&bytes).map_err(|e| e.to_string())?;
+        file.write_all(b"\n").map_err(|e| e.to_string())?;
+        file.sync_all().map_err(|e| e.to_string())?;
+        fs::rename(&temporary, directory.join(filename)).map_err(|e| e.to_string())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(temporary);
+    }
+    result
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -151,33 +230,7 @@ impl Config {
     }
 
     pub fn save(&self, directory: &Path) -> Result<(), String> {
-        fs::create_dir_all(directory).map_err(|e| e.to_string())?;
-        let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
-        let mut random = [0u8; 8];
-        getrandom::fill(&mut random).map_err(|_| "OS random source unavailable")?;
-        let temporary = directory.join(format!(
-            ".config-{}-{:016x}.tmp",
-            std::process::id(),
-            u64::from_ne_bytes(random)
-        ));
-        let mut options = fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-        let result = (|| {
-            let mut file = options.open(&temporary).map_err(|e| e.to_string())?;
-            file.write_all(&bytes).map_err(|e| e.to_string())?;
-            file.write_all(b"\n").map_err(|e| e.to_string())?;
-            file.sync_all().map_err(|e| e.to_string())?;
-            fs::rename(&temporary, directory.join("config.json")).map_err(|e| e.to_string())
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temporary);
-        }
-        result
+        write_json(directory, "config.json", self)
     }
 
     pub fn snapshot(&self) -> Value {
@@ -440,6 +493,64 @@ pub fn remove_secret(directory: &Path, name: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_device_identity_is_created_once_and_survives_settings_writes() {
+        use std::sync::{
+            Barrier,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let mut nonce = [0u8; 8];
+        getrandom::fill(&mut nonce).unwrap();
+        let directory = std::env::temp_dir().join(format!(
+            "bilibilive-device-test-{:x}",
+            u64::from_ne_bytes(nonce)
+        ));
+        let barrier = Barrier::new(4);
+        let generated = AtomicUsize::new(0);
+        let devices = std::thread::scope(|scope| {
+            let jobs: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        load_or_create_device_buvid(&directory, || {
+                            let sequence = generated.fetch_add(1, Ordering::SeqCst);
+                            format!("D4A57BAE-7BC0-4DC2-8B6B-65EEB6754A9C{}user", 100 + sequence)
+                        })
+                        .unwrap()
+                    })
+                })
+                .collect();
+            jobs.into_iter()
+                .map(|job| job.join().unwrap())
+                .collect::<Vec<_>>()
+        });
+        assert_eq!(generated.load(Ordering::SeqCst), 1);
+        assert!(devices.iter().all(|device| device == &devices[0]));
+        let mut config = Config::default();
+        config.set("theme", &json!("light")).unwrap();
+        config.save(&directory).unwrap();
+        assert_eq!(
+            load_or_create_device_buvid(&directory, || panic!("persisted identity must be reused"))
+                .unwrap(),
+            devices[0]
+        );
+        assert!(!config.snapshot().to_string().contains(&devices[0]));
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(directory.join("device.json"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+        }
+        fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn settings_are_typed_and_never_contain_secrets() {
         let mut config = Config::default();

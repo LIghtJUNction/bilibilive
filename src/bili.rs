@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::io::Read;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 type Fields = BTreeMap<String, String>;
@@ -248,6 +248,31 @@ impl BiliClient {
         options: BiliOptions,
         profile: ProtocolProfile,
     ) -> BiliResult<Self> {
+        // Standalone clients share one process identity. Application frontends
+        // supply the profile's persisted identity through the constructor below.
+        static DEVICE_BUVID: OnceLock<String> = OnceLock::new();
+        Self::with_profile_and_buvid(
+            cookie_header,
+            options,
+            profile,
+            DEVICE_BUVID.get_or_init(generated_buvid),
+        )
+    }
+
+    pub fn with_profile_and_buvid(
+        cookie_header: &str,
+        options: BiliOptions,
+        profile: ProtocolProfile,
+        native_buvid: &str,
+    ) -> BiliResult<Self> {
+        if native_buvid.is_empty()
+            || native_buvid.len() > 128
+            || !native_buvid
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        {
+            return Err("Invalid native device identity".into());
+        }
         let cookies = CookieJar::parse(cookie_header)?;
         let mut builder = Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -265,16 +290,11 @@ impl BiliClient {
         let client = builder
             .build()
             .map_err(|_| "Could not initialize the HTTPS client")?;
-        let buvid = cookies
-            .get("buvid3")
-            .filter(|s| !s.is_empty())
-            .map(str::to_owned)
-            .unwrap_or_else(generated_buvid);
         Ok(Self {
             client,
             profile,
             cookies: Mutex::new(cookies),
-            buvid,
+            buvid: native_buvid.to_owned(),
             origins: Origins {
                 api: "https://api.bilibili.com".into(),
                 live: "https://api.live.bilibili.com".into(),
@@ -511,22 +531,24 @@ impl BiliClient {
             _ => return Err("Unsupported HTTP method".into()),
         };
         req = req
-            .header("Referer", "https://live.bilibili.com/")
-            .header("Origin", "https://live.bilibili.com")
-            .header("Accept", "application/json")
+            .header("Accept", "*/*")
             .headers(self.profile.headers(web).clone());
-        if authenticated {
-            let mut cookies = self.jar()?;
-            cookies.insert("appkey", self.profile.app_key())?;
-            cookies.insert("device_name", "bilibilive")?;
-            cookies.insert("device_platform", "Windows Version: 10.0 x86_64")?;
-            if cookies.get("buvid3").is_none() {
-                cookies.insert("buvid3", &self.buvid)?;
-            }
-            req = req
-                .header(COOKIE, cookies.header())
-                .header("buvid", &self.buvid);
+        // StartLive attaches public device metadata even to anonymous QR
+        // sessions. Account cookies must never leak into those requests.
+        let mut cookies = if authenticated {
+            self.jar()?
+        } else {
+            CookieJar::default()
+        };
+        cookies.insert("appkey", self.profile.app_key())?;
+        cookies.insert("device_name", "bilibilive")?;
+        cookies.insert("device_platform", "Windows Version: 10.0 x86_64")?;
+        if !cookies.get("buvid3").is_some_and(|value| !value.is_empty()) {
+            cookies.insert("buvid3", &self.buvid)?;
         }
+        req = req
+            .header(COOKIE, cookies.header())
+            .header("buvid", &self.buvid);
         if let Some(body) = body {
             req = req
                 .header(CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -2606,7 +2628,7 @@ fn random_hex(size: usize) -> String {
     hex(&bytes)
 }
 
-fn generated_buvid() -> String {
+pub(crate) fn generated_buvid() -> String {
     format!(
         "{}{}user",
         random_uuid().to_ascii_uppercase(),
@@ -2960,7 +2982,11 @@ mod tests {
         client.login_generate().unwrap();
         let request = server.join().unwrap().to_ascii_lowercase();
         assert!(request.contains("user-agent: fixtureweb/9\r\n"));
-        assert!(!request.contains("cookie:"));
+        assert!(request.contains("appkey=1234567890abcdef"));
+        assert!(request.contains("buvid3="));
+        assert!(!request.contains("sessdata="));
+        assert!(!request.contains("bili_jct="));
+        assert!(!request.contains("dedeuserid="));
         let (client, server) = live_fixture_profile(json!({"code":0,"data":{}}), snapshot, false);
         client.ack_sequences(&[100, 2, 100]).unwrap();
         let request = server.join().unwrap();
@@ -3116,11 +3142,10 @@ mod tests {
                 + "af125a0d5279fd576c1b4418a3e8276d";
             assert_eq!(signature, format!("{:x}", md5::compute(preimage)));
             for request in &requests {
-                assert!(
-                    request
-                        .to_ascii_lowercase()
-                        .contains("buvid: fixture-device\r\n")
-                );
+                assert!(request.to_ascii_lowercase().contains(&format!(
+                    "buvid: {}\r\n",
+                    client.device_buvid().to_ascii_lowercase()
+                )));
                 assert!(request.contains("buvid3=fixture-device"));
             }
             let poll_request = requests.last().unwrap();
@@ -3203,6 +3228,65 @@ mod tests {
     }
 
     #[test]
+    fn anonymous_and_authenticated_sessions_keep_distinct_device_and_cookie_identity() {
+        let native = "D4A57BAE-7BC0-4DC2-8B6B-65EEB6754A9C1234user";
+        let client = BiliClient::with_profile_and_buvid(
+            "SESSDATA=fixture-secret; bili_jct=fixture-csrf; DedeUserID=123; buvid3=spi-fixture; buvid4=spi-four; bili_ticket=fixture-ticket",
+            BiliOptions::default(),
+            ProtocolProfile::default(),
+            native,
+        ).unwrap();
+        for web in [false, true] {
+            for authenticated in [false, true] {
+                let request = client
+                    .prepare(
+                        "GET",
+                        &client.origins.passport,
+                        "/fixture",
+                        &Fields::new(),
+                        None,
+                        web,
+                        authenticated,
+                        false,
+                    )
+                    .unwrap()
+                    .build()
+                    .unwrap();
+                let headers = request.headers();
+                assert_eq!(headers["buvid"].to_str().unwrap(), native);
+                assert_eq!(headers["accept"].to_str().unwrap(), "*/*");
+                assert_eq!(headers.contains_key("origin"), web);
+                assert_eq!(headers.contains_key("referer"), web);
+                assert_eq!(
+                    headers["user-agent"],
+                    client.profile.headers(web)["user-agent"]
+                );
+                let cookies = CookieJar::parse(headers[COOKIE].to_str().unwrap()).unwrap();
+                assert_eq!(cookies.get("appkey"), Some(client.profile.app_key()));
+                assert!(cookies.get("device_name").is_some());
+                assert_eq!(
+                    cookies.get("device_platform"),
+                    Some("Windows Version: 10.0 x86_64")
+                );
+                assert_eq!(
+                    cookies.get("buvid3"),
+                    Some(if authenticated { "spi-fixture" } else { native })
+                );
+                for name in [
+                    "SESSDATA",
+                    "bili_jct",
+                    "DedeUserID",
+                    "buvid4",
+                    "bili_ticket",
+                ] {
+                    assert_eq!(cookies.get(name).is_some(), authenticated);
+                }
+            }
+        }
+        assert_eq!(client.jar().unwrap().get("buvid3"), Some("spi-fixture"));
+    }
+
+    #[test]
     fn initialized_device_cookies_survive_new_clients_through_face_verification() {
         for device_cookies in ["", "; buvid3=; buvid4="] {
             let (initial, server) = verification_fixture(vec![
@@ -3223,7 +3307,13 @@ mod tests {
                 .unwrap();
             let cookie = cookie.as_str().unwrap();
             let new_client = || {
-                let mut client = BiliClient::new(cookie).unwrap();
+                let mut client = BiliClient::with_profile_and_buvid(
+                    cookie,
+                    BiliOptions::default(),
+                    initial.profile.clone(),
+                    initial.device_buvid(),
+                )
+                .unwrap();
                 client.origins.live = initial.origins.live.clone();
                 client.origins.api = initial.origins.api.clone();
                 client
@@ -3240,12 +3330,15 @@ mod tests {
             );
             let requests = server.join().unwrap();
             assert!(requests[0].starts_with("GET /x/frontend/finger/spi "));
+            assert!(requests[0].contains(&format!("buvid3={}", initial.device_buvid())));
+            for request in &requests {
+                assert!(request.to_ascii_lowercase().contains(&format!(
+                    "buvid: {}\r\n",
+                    initial.device_buvid().to_ascii_lowercase()
+                )));
+                assert!(!request.contains("buvid: official-fixture-device\r\n"));
+            }
             for request in &requests[1..] {
-                assert!(
-                    request
-                        .to_ascii_lowercase()
-                        .contains("buvid: official-fixture-device\r\n")
-                );
                 assert!(request.contains("buvid3=official-fixture-device"));
                 assert!(request.contains("buvid4=official-fixture-four"));
             }
@@ -3303,7 +3396,10 @@ mod tests {
             let n = socket.read(&mut input).unwrap();
             let request = String::from_utf8_lossy(&input[..n]);
             assert!(request.starts_with("GET /x/passport-login/web/qrcode/poll?"));
-            assert!(!request.to_ascii_lowercase().contains("cookie:"));
+            assert!(request.contains("buvid3="));
+            assert!(!request.contains("SESSDATA="));
+            assert!(!request.contains("bili_jct="));
+            assert!(!request.contains("DedeUserID="));
             let body = r#"{"code":0,"data":{"code":0,"message":"ok","url":"https://passport.bilibili.com/ok"}}"#;
             write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: SESSDATA=test-secret; HttpOnly\r\nSet-Cookie: bili_jct=test-csrf\r\nSet-Cookie: DedeUserID=123\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
         });
