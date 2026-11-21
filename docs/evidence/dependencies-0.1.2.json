@@ -1,12 +1,26 @@
 {
   "schema_version": 1,
   "application_version": "0.1.2",
-  "checked_from_utc": "2026-11-21T14:53:57.009900+00:00",
-  "checked_to_utc": "2026-11-21T14:54:14.118624+00:00",
-  "method": "git ls-remote --symref <repository> HEAD for every locked Project Z Git dependency",
-  "baseline_source_commit": "0f97b0e59240fd1230878371c4b9126f0955b70f",
-  "lock_sha256": "f09dc3bc7945a48f70d4dd86abc6d667554224aa17d2ffc95784be2c36aa516c",
-  "dependency_updates_applied": false,
+  "checked_from_utc": "2026-11-21T15:16:48.022234+00:00",
+  "checked_to_utc": "2026-11-21T15:17:01.822418+00:00",
+  "method": "git ls-remote --symref <repository> HEAD for every locked Project Z Git dependency; compare the observed heads with Cargo.lock after the precise zuse-computer update",
+  "baseline_source_commit": "31ec5ae7f21a0a6f3d847bfabafbeeab62f2444d",
+  "lock_sha256": "5a05a383f8209f9fb8a485357605146adc188354509fe35c98b64d5517da617c",
+  "dependency_updates_applied": true,
+  "lock_resolution": {
+    "command": [
+      "cargo",
+      "update",
+      "--package",
+      "zuse-computer",
+      "--precise",
+      "48c35a2a5550f8dfc1e0e1be2577f1e64de6e0ae"
+    ],
+    "verified_at_utc": "2026-11-21T15:19:36.006419+00:00",
+    "updated_dependency_count": 1,
+    "unrelated_lock_entries_unchanged": true,
+    "development_git_declarations_unchanged": true
+  },
   "git_dependencies": [
     {
       "package": "z64",
@@ -16,7 +30,7 @@
       "locked_commit": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd",
       "observed_default_head": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:09.004541+00:00"
+      "checked_at_utc": "2026-11-21T15:16:56.712878+00:00"
     },
     {
       "package": "zcall",
@@ -26,7 +40,7 @@
       "locked_commit": "8dd30a922a0aedbe821f610649b1ab26078d1882",
       "observed_default_head": "8dd30a922a0aedbe821f610649b1ab26078d1882",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:08.727452+00:00"
+      "checked_at_utc": "2026-11-21T15:16:56.731864+00:00"
     },
     {
       "package": "zclap",
@@ -36,7 +50,7 @@
       "locked_commit": "4d87f3ae3743e81509d5ac5500909955667c860f",
       "observed_default_head": "4d87f3ae3743e81509d5ac5500909955667c860f",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:09.008350+00:00"
+      "checked_at_utc": "2026-11-21T15:16:56.733136+00:00"
     },
     {
       "package": "zconv",
@@ -46,7 +60,7 @@
       "locked_commit": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
       "observed_default_head": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:08.754232+00:00"
+      "checked_at_utc": "2026-11-21T15:16:56.732299+00:00"
     },
     {
       "package": "zgpui",
@@ -56,7 +70,7 @@
       "locked_commit": "174a8b73087deeac2ecfa036cad8bddba71c612f",
       "observed_default_head": "174a8b73087deeac2ecfa036cad8bddba71c612f",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:14.068384+00:00"
+      "checked_at_utc": "2026-11-21T15:17:01.786186+00:00"
     },
     {
       "package": "zmcpio",
@@ -66,7 +80,7 @@
       "locked_commit": "c114a5ae9f925c64f3b090b8524016cbb90b6cff",
       "observed_default_head": "c114a5ae9f925c64f3b090b8524016cbb90b6cff",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:14.118023+00:00"
+      "checked_at_utc": "2026-11-21T15:17:01.821871+00:00"
     },
     {
       "package": "zsys",
@@ -76,32 +90,37 @@
       "locked_commit": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7",
       "observed_default_head": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7",
       "matches_lock": true,
-      "checked_at_utc": "2026-11-21T14:54:14.070319+00:00"
+      "checked_at_utc": "2026-11-21T15:17:01.792945+00:00"
     },
     {
       "package": "zuse-computer",
-      "version": "0.4.0",
+      "version": "0.4.1",
       "repository": "https://github.com/LIghtJUNction/zuse.git",
       "default_branch": "refs/heads/main",
-      "locked_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
-      "observed_default_head": "67b6d8e9a804636c71a3e2417f94cb1eb29a5d38",
-      "matches_lock": false,
-      "checked_at_utc": "2026-11-21T14:54:14.024433+00:00"
+      "locked_commit": "48c35a2a5550f8dfc1e0e1be2577f1e64de6e0ae",
+      "observed_default_head": "48c35a2a5550f8dfc1e0e1be2577f1e64de6e0ae",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T15:17:01.726038+00:00"
     }
   ],
   "observed_changes": [
     {
       "package": "zuse-computer",
-      "locked_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
-      "observed_default_head": "67b6d8e9a804636c71a3e2417f94cb1eb29a5d38",
+      "previous_version": "0.4.0",
+      "version": "0.4.1",
+      "previous_locked_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
+      "locked_commit": "48c35a2a5550f8dfc1e0e1be2577f1e64de6e0ae",
       "changed_paths": [
+        "CHANGELOG.md",
+        "Cargo.lock",
+        "Cargo.toml",
         "tests/native_x11_utf8.py",
         "tests/x11_utf8_native.rs"
       ],
-      "runtime_manifest_and_lock_unchanged": true,
-      "package_version_unchanged": "0.4.0",
+      "runtime_source_unchanged": true,
+      "runtime_source_tree": "fcaefe82ebbdb3340816eecb88e3f2736bc51e2a",
       "publication_scope_changed": true,
-      "note": "The changed tests are included in the crate publication scope. This release retains the previously verified locked source."
+      "note": "The 0.4.1 source includes the Num Lock fixture changes and release metadata. The tests remain within the complete registry comparison scope; the corresponding 0.4.1 registry archive must pass that comparison before publication."
     }
   ],
   "registry_projection_status": "Separate complete registry staging verification is required for the final 0.1.2 source commit."

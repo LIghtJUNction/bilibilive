@@ -4,6 +4,15 @@
 
 - Use a warm-gray and terracotta-orange desktop palette while preserving
   the existing layout and operation behavior.
+- Skip automatic OBS observer requests during read-only desktop startup,
+  and avoid sending a stop request before observation has been enabled.
+- Report automatic OBS streaming failures after a successful room start as
+  partial failures. Preserve the live room state, stop later zuse mutations,
+  and show guidance for checking OBS without repeating the room start.
+- Show failed embedded zuse runs as failures in the desktop, retaining their
+  execution receipts without retrying operations.
+- Refresh zuse-computer to the 0.4.1 default-branch source, including its
+  isolated Num Lock regression fixtures. Its runtime source is unchanged.
 
 ## 0.1.1
 
