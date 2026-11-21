@@ -309,6 +309,13 @@
   "publication": {
     "formal_release_published": false,
     "formal_v0_1_3_release_exists": false,
+    "latest_formal_release_check": {
+      "checked_at_utc_date": "2026-11-21",
+      "checked_at_utc_time": "22:05",
+      "latest_tag": "v0.1.2",
+      "latest_release_published_at_utc_time": "15:45:35",
+      "remote_v0_1_3_tag_exists": false
+    },
     "preview_records_are_historical_snapshots": true,
     "preview_snapshots": [
       {
@@ -386,6 +393,116 @@
           "windows": "in_progress"
         },
         "all_platform_gates_passed": false
+      },
+      {
+        "run": "https://github.com/LIghtJUNction/bilibilive/actions/runs/44949165435",
+        "source_commit": "66c7346f2106e2a266f702be0c3453fc5ce2e6f2",
+        "snapshot_scope": "Final known job results; preserves the earlier 21:08:57 UTC snapshot",
+        "publish_input": false,
+        "workflow_conclusion": "failure",
+        "linux": {
+          "job_id": "136983111110",
+          "conclusion": "success"
+        },
+        "macos_arm": {
+          "job_id": "136983111053",
+          "conclusion": "success",
+          "completed_at_utc_time": "21:25:40"
+        },
+        "macos_intel": {
+          "job_id": "136983111098",
+          "conclusion": "success",
+          "completed_at_utc_time": "21:36:22"
+        },
+        "windows": {
+          "job_id": "136983111137",
+          "conclusion": "failure",
+          "completed_at_utc_time": "21:52:06",
+          "step_14_installation_integration": "passed_14_of_14",
+          "step_15_native_media": {"conclusion": "success", "completed_at_utc_time": "21:44:15"},
+          "step_16_application_tests_and_release_build": {"conclusion": "success", "completed_at_utc_time": "21:50:36"},
+          "step_17_installer_gui_and_media": {"conclusion": "success", "completed_at_utc_time": "21:50:49"},
+          "step_18_update_and_restart": {"conclusion": "failure", "completed_at_utc_time": "21:51:52"},
+          "diagnosis": "The probe compared ordinary and extended Windows paths as different identities; its containment check stopped before downloaded-package SHA-256 verification",
+          "official_helper_log_observations": {
+            "fixture_version_applied": "0.0.2",
+            "confirmation_process_started": true,
+            "original_probe_result_overridden": false
+          }
+        },
+        "all_platform_gates_passed": false
+      }
+    ],
+    "focused_validation_runs": [
+      {
+        "run": "https://github.com/LIghtJUNction/bilibilive/actions/runs/44954438960",
+        "source_commit": "2c4cf63dc38aa600eac427c59124876b7adc0ba3",
+        "scope": "Packaging fixtures and real private SDK update/restart probes on Windows, macOS ARM and macOS Intel",
+        "workflow_status": "completed",
+        "workflow_conclusion": "success",
+        "all_focused_jobs_passed": true,
+        "full_release_pipeline_rerun": false,
+        "publication_performed": false,
+        "application_inputs": {
+          "reference_runtime_commit": "66c7346f2106e2a266f702be0c3453fc5ce2e6f2",
+          "byte_diff_empty_for": ["src/", "Cargo.toml", "Cargo.lock", "build.rs"],
+          "installed_candidate_unchanged": "0.1.3-0.4"
+        },
+        "local_linux_fixture_checks": {
+          "tests_run": 25,
+          "passed": 23,
+          "skipped": 2,
+          "skip_scope": "Windows-only fixtures"
+        },
+        "verified_receipt_facts_on_all_three_platforms": {
+          "status": "passed",
+          "sdk_version": "1.2.161",
+          "old_process_exit_code": 0,
+          "new_version": "0.0.2",
+          "new_manifest_version": "0.0.2",
+          "new_pid_differs_from_old": true,
+          "new_executable_sha256_matches_package_executable": true,
+          "private_processes_exited": true,
+          "application_accounts_used": false
+        },
+        "jobs": {
+          "windows": {
+            "job_id": "136999318257",
+            "conclusion": "success",
+            "fixtures_step_6": {
+              "conclusion": "success",
+              "completed_at_utc_time": "22:01:12",
+              "source_log_timestamp_utc": "2026-11-21T22:01:12Z",
+              "tests_run": 25,
+              "passed": 25,
+              "skipped": 0,
+              "duration_seconds": 3.506,
+              "windows_specific_checks_passed": 2
+            },
+            "real_update_probe_step_7": {"conclusion": "success", "completed_at_utc_time": "22:02:33"},
+            "completed_at_utc_time": "22:02:38",
+            "receipt_artifact_id": "14726873008",
+            "receipt_sha256": "b5dfaa32456d9a0dddf8e4dea84ed2b4e9868d5ae55a23bc07d62361b90abefe"
+          },
+          "macos_arm": {
+            "job_id": "136999318562",
+            "conclusion": "success",
+            "fixtures_step_6": {"conclusion": "success", "completed_at_utc_time": "22:00:46"},
+            "real_update_probe_step_7": {"conclusion": "success", "completed_at_utc_time": "22:01:20"},
+            "completed_at_utc_time": "22:01:27",
+            "receipt_artifact_id": "14726572704",
+            "receipt_sha256": "4efecc063ad10787a38c31a6f20ba1018ab6ecce215eb2c87441ce5bbaa69d06"
+          },
+          "macos_intel": {
+            "job_id": "136999318547",
+            "conclusion": "success",
+            "fixtures_step_6": {"conclusion": "success", "completed_at_utc_time": "22:01:59"},
+            "real_update_probe_step_7": {"conclusion": "success", "completed_at_utc_time": "22:03:39"},
+            "completed_at_utc_time": "22:03:44",
+            "receipt_artifact_id": "14727056605",
+            "receipt_sha256": "d619b508ec5e250e79ed05068aec2fd0d73acc127b54ebc371da733305de9d94"
+          }
+        }
       }
     ],
     "follow_up_packaging_correction": {

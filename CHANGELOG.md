@@ -117,6 +117,17 @@ including 14 Windows integration tests; Linux's full job passed while the
 other native payload builds were still running. This is a timed CI snapshot,
 not a completed all-platform or real-account acceptance result.
 
+That full preview ultimately failed at the Windows update/restart probe.
+Commit `2c4cf63` corrects its comparison of ordinary and extended Windows
+paths. Focused run
+[`44954438960`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44954438960)
+then passed packaging fixtures and private SDK update/restart verification on
+Windows, macOS ARM and macOS Intel, with all three receipts checked. Windows
+ran all 25 fixtures successfully with no skips. This
+follow-up did not rerun the full release workflow. Application sources remain
+unchanged from the installed `0.1.3-0.4` runtime; the original phone failure
+has not been shown to be resolved, and no formal release has been published.
+
 The preceding Linux regression gate for the face-verification and interaction
 fixes passed **139 tests**: 123 library tests, 3 CLI tests and 13 integration tests,
 using Rust 1.100.0 and `cargo test --locked --offline --all-features`.

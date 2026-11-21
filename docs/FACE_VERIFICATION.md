@@ -260,6 +260,35 @@ other three platforms were in native payload step 15. This `publish=false`
 run had not completed every platform's gates at that snapshot. There is no
 formal `v0.1.3` release in this record.
 
+The final outcome of that full preview was **failure**. Linux and both macOS
+jobs succeeded. Windows passed its native media build, application tests and
+optimized build, and installer/GUI/media gate, but the update/restart probe
+failed at 21:51:52 UTC; the Windows job ended in failure at 21:52:06 UTC.
+Its containment check compared ordinary and extended Windows paths as
+different identities and stopped before the downloaded-package hash check. The
+official helper log showed application of fixture version `0.0.2` and launch
+with `--confirm`; the original probe result remains a failure.
+
+Commit `2c4cf63` corrected the probe's path comparison. Focused workflow
+[`44954438960`](https://github.com/LIghtJUNction/bilibilive/actions/runs/44954438960)
+completed successfully on Windows, macOS ARM and macOS Intel, exercising
+packaging fixtures and the private SDK update/restart probe. All three
+receipts were checked: SDK `1.2.161`, old process exit code `0`, replacement
+version `0.0.2`, a changed process ID, an executable SHA-256 matching its
+package, and all private processes exited. These probes did not use
+application accounts. The final focused job completed at 22:03:44 UTC.
+The Windows fixture log recorded 25 passing tests in 3.506 seconds with no
+skips, including both Windows-specific checks.
+
+This follow-up covered the update verification tooling and did not rerun the
+complete release workflow. Application sources and build inputs are unchanged
+from `66c7346`, so the installed candidate remains `0.1.3-0.4`. Account tests
+remain paused without confirmation that the mobile restriction has cleared.
+The original phone failure has not been shown to be resolved, and real login,
+face verification and broadcasting still require the user's acceptance.
+At 22:05 UTC, the latest formal release remained `v0.1.2`, and the remote
+`v0.1.3` tag did not exist.
+
 If the phone reports an error, record its visible wording and whether the
 camera/face screen opened, together with the current sanitized platform
 status. Do not include cookies, QR URLs or tokens, stream keys, or realname
