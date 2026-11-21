@@ -503,6 +503,7 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
             continue;
         }
         visible_notice = notice_now;
+        let had_input = event.is_some();
         ui.begin(event);
         let page_before_draw = desktop.page;
         let window = window.as_mut().expect("visible window checked above");
@@ -517,7 +518,7 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
         window.present();
         // Page buttons can navigate after the current page has already drawn.
         // Present the destination without waiting for another input event.
-        drawn = desktop.page == page_before_draw;
+        drawn = !had_input && desktop.page == page_before_draw;
         frames += 1;
         if frame_limit.is_some_and(|limit| frames >= limit) {
             break;
