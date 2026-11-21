@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 #[path = "obs_observer.rs"]
@@ -36,10 +39,22 @@ struct State {
     obs_ignore_start_until: Instant,
     obs_ignore_stop_until: Instant,
 }
+struct PendingUpdateReply {
+    staged_id: String,
+    restart: bool,
+    value: Value,
+    expires_at: Instant,
+}
 struct Inner {
     directory: PathBuf,
     state: Mutex<State>,
     account_gate: Mutex<()>,
+    software_gate: Mutex<()>,
+    retiring: AtomicBool,
+    update_helper_ready: AtomicBool,
+    update_exit_requested: AtomicBool,
+    pending_update_reply: Mutex<Option<PendingUpdateReply>>,
+    updater: crate::updater::Updater,
     pk: Mutex<crate::pk_session::PkSession>,
     media: crate::media::MediaManager,
     observer: Mutex<Option<observer::Observer>>,
@@ -69,6 +84,7 @@ impl App {
     pub fn new(directory: Option<PathBuf>) -> Result<Self, String> {
         let directory = directory.unwrap_or_else(config::default_dir);
         let config = Config::load(&directory)?;
+        let updater = crate::updater::Updater::new(directory.clone());
         let app = Self {
             inner: Arc::new(Inner {
                 directory,
@@ -88,6 +104,12 @@ impl App {
                 }),
                 media: crate::media::MediaManager::new(),
                 account_gate: Mutex::new(()),
+                software_gate: Mutex::new(()),
+                retiring: AtomicBool::new(false),
+                update_helper_ready: AtomicBool::new(false),
+                update_exit_requested: AtomicBool::new(false),
+                pending_update_reply: Mutex::new(None),
+                updater,
                 pk: Mutex::new(crate::pk_session::PkSession::new()),
                 observer: Mutex::new(None),
             }),
@@ -375,13 +397,52 @@ impl App {
         if self.read_only && !spec.read_only && method != "zuse.run" {
             return Err(format!("{method} is disabled in read-only mode"));
         }
-        // An embedded program dispatches each of its already preflighted steps
-        // through call(). Holding an outer non-reentrant lease would deadlock.
+        self.check_retirement(method, spec.read_only)?;
+        let _software = if matches!(
+            method,
+            "obs.plugin.install" | "updates.download" | "updates.apply"
+        ) {
+            Some(
+                self.inner
+                    .software_gate
+                    .try_lock()
+                    .map_err(|error| match error {
+                        std::sync::TryLockError::WouldBlock => {
+                            "Another local software operation is in progress".to_owned()
+                        }
+                        std::sync::TryLockError::Poisoned(_) => {
+                            "Local software operation lock failed".to_owned()
+                        }
+                    })?,
+            )
+        } else {
+            None
+        };
+        self.check_retirement(method, spec.read_only)?;
+        // Embedded programs acquire a fresh lease for each step. Software
+        // management is not account-bound: it neither holds that lease during
+        // file I/O nor waits for another account operation after scheduling an
+        // update helper. Its envelope uses this App's current cached context.
         let result = if matches!(method, "zuse.run" | "zuse.check") {
+            self.dispatch(method, &mut args).and_then(|value| {
+                if is_success(&value)
+                    && value["quit_requested"] == true
+                    && value["exit_required"] == true
+                {
+                    // The terminal step has already retired local sessions and
+                    // launched the helper. Do not wait for a new account lease
+                    // before returning the response that lets this host exit.
+                    Ok(self.with_context(value))
+                } else {
+                    self.with_account_lease(|| Ok(self.with_context(value)))
+                }
+            })
+        } else if method.starts_with("obs.plugin.") || method.starts_with("updates.") {
             self.dispatch(method, &mut args)
-                .and_then(|value| self.with_account_lease(|| Ok(self.with_context(value))))
+                .map(|value| self.with_context(value))
         } else {
             self.with_account_lease(|| {
+                self.check_retirement(method, spec.read_only)?;
                 self.dispatch(method, &mut args)
                     .map(|value| self.with_context(value))
             })
@@ -398,9 +459,128 @@ impl App {
                     .as_ref()
                     .is_ok_and(|value| value["status"] != "authenticated"));
         if !ok || (!spec.read_only && !polling) {
-            let _ = crate::logging::record(&self.inner.directory, method, ok);
+            if result.as_ref().is_ok_and(|value| {
+                value["quit_requested"] == true && value["exit_required"] == true
+            }) {
+                let _ = crate::logging::try_record(&self.inner.directory, method, ok);
+            } else {
+                let _ = crate::logging::record(&self.inner.directory, method, ok);
+            }
         }
         result
+    }
+
+    fn check_retirement(&self, method: &str, read_only: bool) -> Result<(), String> {
+        if self.inner.retiring.load(Ordering::Acquire)
+            && !read_only
+            && !matches!(method, "zuse.run" | "updates.apply")
+        {
+            return Err(
+                "An application update is waiting for this host to exit; new effects are disabled"
+                    .into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// A transport sets this only after flushing the successful update reply.
+    /// GUI hosts can therefore honor an update initiated through their HTTP API.
+    pub fn update_exit_requested(&self) -> bool {
+        self.inner.update_exit_requested.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn acknowledge_update_reply(&self, value: &Value) -> bool {
+        let ready = self.inner.update_helper_ready.load(Ordering::Acquire)
+            && is_success(value)
+            && value["quit_requested"] == true
+            && value["exit_required"] == true
+            && self
+                .inner
+                .pending_update_reply
+                .lock()
+                .ok()
+                .is_some_and(|pending| {
+                    pending.as_ref().is_some_and(|pending| {
+                        Instant::now() < pending.expires_at
+                            && value["staged_id"].as_str() == Some(pending.staged_id.as_str())
+                    })
+                });
+        if ready {
+            self.inner
+                .update_exit_requested
+                .store(true, Ordering::Release);
+        }
+        ready
+    }
+
+    fn apply_update(&self, args: &Value) -> Result<Value, String> {
+        // Keep the successful helper receipt until its exit deadline. A broken
+        // HTTP connection must not make a retry launch another updater, nor
+        // leave the caller unable to acknowledge the original successful call.
+        let mut pending = self
+            .inner
+            .pending_update_reply
+            .lock()
+            .map_err(|_| "Update reply lock failed")?;
+        if self.inner.retiring.load(Ordering::Acquire) {
+            let previous = pending.as_ref().ok_or("An application update is waiting for this host to exit, but its reply is unavailable; close this host before retrying")?;
+            if args["staged_id"].as_str() != Some(previous.staged_id.as_str())
+                || args["restart"].as_bool().unwrap_or(true) != previous.restart
+            {
+                return Err("An application update is already waiting for this host to exit; only the same staged_id and restart choice can recover its reply".into());
+            }
+            if Instant::now() >= previous.expires_at {
+                return Err("The update helper's exit deadline has passed; close this host, reopen the application and retry the downloaded update".into());
+            }
+            let mut value = previous.value.clone();
+            value["receipt_replayed"] = json!(true);
+            return Ok(value);
+        }
+        let apply_started = Instant::now();
+        let prepared = std::cell::Cell::new(false);
+        let result = self.inner.updater.apply_with_prepare(args, || {
+            self.with_account_lease(|| {
+                self.inner.retiring.store(true, Ordering::Release);
+                self.observer_stop()?;
+                self.reset_interaction()?;
+                prepared.set(true);
+                Ok(())
+            })
+        });
+        match result {
+            Ok(mut value) => {
+                if prepared.get() {
+                    value["local_sessions_retired"] = json!(true);
+                    value["room_changed"] = json!(false);
+                    value["obs_output_changed"] = json!(false);
+                    if is_success(&value)
+                        && value["quit_requested"] == true
+                        && value["exit_required"] == true
+                    {
+                        *pending = Some(PendingUpdateReply {
+                            staged_id: args["staged_id"].as_str().unwrap_or_default().to_owned(),
+                            restart: args["restart"].as_bool().unwrap_or(true),
+                            value: value.clone(),
+                            expires_at: apply_started
+                                + Duration::from_secs(
+                                    value["exit_timeout_seconds"].as_u64().unwrap_or(60).min(60),
+                                ),
+                        });
+                        self.inner
+                            .update_helper_ready
+                            .store(true, Ordering::Release);
+                    }
+                }
+                Ok(value)
+            }
+            Err(error) if self.inner.retiring.swap(false, Ordering::AcqRel) => Ok(json!({
+                "ok":false,"status":"failed","phase":"failed","error":error,
+                "local_shutdown_attempted":true,"local_sessions_retired":prepared.get(),
+                "room_changed":false,"obs_output_changed":false,"quit_requested":false,
+                "message":"The update did not start. Local media or observer state may have changed; reconnect explicitly after reviewing the error."
+            })),
+            Err(error) => Err(error),
+        }
     }
 
     fn dispatch(&self, method: &str, args: &mut Value) -> Result<Value, String> {
@@ -411,6 +591,7 @@ impl App {
                 "zuse_version":zuse::VERSION,"mcp":"stdio and loopback HTTP",
                 "accounts":self.config()?.accounts.len(),"credential_store":"OS keyring",
                 "read_only":self.read_only,"config_dir":self.inner.directory,
+                "bundle":crate::bundle::diagnostics(),
                 "native_media":self.inner.media.call("status", &json!({})).unwrap_or_else(|e|json!({"available":false,"message":e}))
             })),
             "config.get" => Ok(self.cached_snapshot()),
@@ -604,6 +785,8 @@ impl App {
                 }
                 Ok(result)
             }
+            "obs.plugin.status" => crate::obs_plugin::status(args),
+            "obs.plugin.install" => crate::obs_plugin::install(args),
             "obs.configure" => {
                 let mut cfg = self.config()?;
                 if let Some(url) = args.get("url") {
@@ -700,24 +883,10 @@ impl App {
                 method == "zuse.check",
                 self.read_only || args["read_only"].as_bool().unwrap_or(false),
             ),
-            "updates.check" => {
-                let client = reqwest::blocking::Client::builder()
-                    .timeout(Duration::from_secs(10))
-                    .build()
-                    .map_err(|e| e.to_string())?;
-                let result: Value = client
-                    .get("https://api.github.com/repos/LIghtJUNction/bilibilive/releases/latest")
-                    .header("User-Agent", "bilibilive")
-                    .send()
-                    .map_err(|e| e.to_string())?
-                    .error_for_status()
-                    .map_err(|e| e.to_string())?
-                    .json()
-                    .map_err(|e| e.to_string())?;
-                Ok(
-                    json!({"current":crate::VERSION,"latest":result["tag_name"],"url":result["html_url"]}),
-                )
-            }
+            "updates.status" => self.inner.updater.status(),
+            "updates.check" => self.inner.updater.check(),
+            "updates.download" => self.inner.updater.download(args),
+            "updates.apply" => self.apply_update(args),
             "rtc.disconnect" => {
                 self.reset_interaction()?;
                 Ok(json!({"disconnected":true}))
@@ -988,9 +1157,15 @@ impl App {
     }
 
     fn event_tick(&self) -> Result<(), String> {
+        if self.inner.retiring.load(Ordering::Acquire) {
+            return Ok(());
+        }
         let Ok(_guard) = self.inner.account_gate.try_lock() else {
             return Ok(());
         };
+        if self.inner.retiring.load(Ordering::Acquire) {
+            return Ok(());
+        }
         // Reading an atomic config file is only a hint here. Recheck under the
         // profile lock before any callback, credential refresh or media effect.
         // Idle instances need no file creation or profile lock on every tick.
@@ -1591,5 +1766,186 @@ mod account_lease_tests {
             app.call("config.get", json!({})).unwrap()["default_area"],
             999
         );
+        let denied = app
+            .call("obs.plugin.install", json!({}))
+            .expect_err("read-only mode must reject installation before inspecting any bundle");
+        assert!(denied.contains("disabled in read-only mode"));
+        assert!(
+            app.call(
+                "zuse.run",
+                json!({"script":"config.get(); obs.plugin.install()"})
+            )
+            .is_err()
+        );
+        for operation in ["updates.download", "updates.apply"] {
+            let denied = app
+                .call(operation, json!({"staged_id":"not-a-reviewed-update"}))
+                .expect_err("read-only mode must reject update effects before source inspection");
+            assert!(denied.contains("disabled in read-only mode"));
+            let program = format!("config.get(); {operation}(staged_id=\"not-a-reviewed-update\")");
+            assert!(app.call("zuse.run", json!({"script":program})).is_err());
+        }
+    }
+
+    #[test]
+    fn update_retirement_keeps_queries_available_and_rejects_new_effects() {
+        let mut fixture = Fixture::new();
+        let app = fixture.app();
+        let before = app.call("config.get", json!({})).unwrap()["default_area"].clone();
+        app.inner.retiring.store(true, Ordering::Release);
+        assert!(
+            app.call("config.set", json!({"key":"default_area","value":999}))
+                .unwrap_err()
+                .contains("waiting for this host to exit")
+        );
+        assert_eq!(
+            app.call("config.get", json!({})).unwrap()["default_area"],
+            before
+        );
+        let queried = app
+            .call("zuse.run", json!({"script":"config.get()"}))
+            .unwrap();
+        assert_eq!(queried["status"], "completed");
+        let mutation = app
+            .call(
+                "zuse.run",
+                json!({"script":"config.set(key=\"default_area\",value=999)"}),
+            )
+            .unwrap();
+        assert_eq!(mutation["status"], "failed");
+        assert_eq!(
+            app.call("config.get", json!({})).unwrap()["default_area"],
+            before
+        );
+    }
+
+    fn pending_update(app: &App, expires_at: Instant) {
+        // Model only a helper that has already accepted the update. These tests
+        // never start an installer or modify the executable running the suite.
+        *app.inner.pending_update_reply.lock().unwrap() = Some(PendingUpdateReply {
+            staged_id: "fixture-reviewed-update".into(),
+            restart: true,
+            expires_at,
+            value: json!({"ok":true,"phase":"restart_pending","staged_id":"fixture-reviewed-update", "quit_requested":true,"exit_required":true,"restart_requested":true,"exit_timeout_seconds":60,"local_sessions_retired":true,"room_changed":false,"obs_output_changed":false}),
+        });
+        app.inner.retiring.store(true, Ordering::Release);
+        app.inner.update_helper_ready.store(true, Ordering::Release);
+    }
+
+    #[test]
+    fn interrupted_update_reply_can_only_be_recovered_for_the_same_pending_request() {
+        let mut fixture = Fixture::new();
+        let app = fixture.app();
+        pending_update(&app, Instant::now() + Duration::from_secs(60));
+        let args = json!({"staged_id":"fixture-reviewed-update"});
+        let response = app.call("updates.apply", args.clone()).unwrap();
+        assert_eq!(response["receipt_replayed"], true);
+        assert_eq!(response["local_sessions_retired"], true);
+        assert!(!app.update_exit_requested());
+        for args in [
+            json!({"staged_id":"another-update"}),
+            json!({"staged_id":"fixture-reviewed-update","restart":false}),
+        ] {
+            assert!(
+                app.call("updates.apply", args)
+                    .unwrap_err()
+                    .contains("same staged_id")
+            );
+        }
+        assert!(
+            app.clone()
+                .with_read_only(true)
+                .call("updates.apply", args.clone())
+                .is_err()
+        );
+        let mut unrelated = response.clone();
+        unrelated["staged_id"] = "another-update".into();
+        assert!(!app.acknowledge_update_reply(&unrelated));
+        assert!(!app.update_exit_requested());
+        app.inner
+            .pending_update_reply
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .expires_at = Instant::now();
+        assert!(
+            app.call("updates.apply", args)
+                .unwrap_err()
+                .contains("deadline has passed")
+        );
+        assert!(!app.acknowledge_update_reply(&response));
+        assert!(!app.update_exit_requested());
+    }
+
+    #[test]
+    fn direct_and_terminal_zuse_mcp_updates_wait_for_the_flushed_reply() {
+        for (method, arguments) in [
+            (
+                "updates.apply",
+                json!({"staged_id":"fixture-reviewed-update"}),
+            ),
+            (
+                "zuse.run",
+                json!({"script":"updates.apply(staged_id=\"fixture-reviewed-update\")"}),
+            ),
+        ] {
+            let mut fixture = Fixture::new();
+            let app = fixture.app();
+            pending_update(&app, Instant::now() + Duration::from_secs(60));
+            let mut session = crate::mcp::Session::new(app.clone());
+            session.handle(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"update-fixture","version":"1"}}}).to_string().as_bytes()).unwrap();
+            session
+                .handle(br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+                .unwrap();
+            let bytes = session.handle(json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":method,"arguments":arguments}}).to_string().as_bytes()).unwrap().unwrap();
+            let reply: Value = serde_json::from_slice(&bytes).unwrap();
+            assert_ne!(reply["result"]["isError"], true);
+            assert_eq!(reply["result"]["structuredContent"]["quit_requested"], true);
+            assert_eq!(
+                reply["result"]["structuredContent"]["receipt_replayed"],
+                true
+            );
+            assert!(
+                !app.update_exit_requested(),
+                "encoding a reply must not acknowledge delivery"
+            );
+            assert!(session.complete_reply());
+            assert!(app.update_exit_requested());
+            assert!(!session.complete_reply());
+        }
+    }
+
+    #[test]
+    fn a_busy_operation_log_cannot_hold_the_update_helper_host_open() {
+        let mut fixture = Fixture::new();
+        let app = fixture.app();
+        pending_update(&app, Instant::now() + Duration::from_secs(60));
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(fixture.directory.join("operations.lock"))
+            .unwrap();
+        file.lock().unwrap();
+        let (sender, receiver) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            sender
+                .send(app.call(
+                    "zuse.run",
+                    json!({"script":"updates.apply(staged_id=\"fixture-reviewed-update\")"}),
+                ))
+                .unwrap();
+        });
+        let result = receiver.recv_timeout(Duration::from_secs(2));
+        drop(file);
+        worker.join().unwrap();
+        let result = result
+            .expect("an unrelated log lock blocked a terminal update reply")
+            .unwrap();
+        assert_eq!(result["status"], "completed");
+        assert_eq!(result["receipt_replayed"], true);
+        assert_eq!(result["exit_required"], true);
     }
 }

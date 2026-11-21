@@ -77,6 +77,12 @@ pub(crate) fn connect_websocket(
         Some("wss") => true,
         _ => return Err("WebSocket address must use ws:// or wss://".into()),
     };
+    // The updater and HTTP client can enable different Rustls crypto features
+    // together. Choose one before Tungstenite builds its TLS configuration;
+    // preserve a provider explicitly installed by an embedding application.
+    if secure && rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    }
     let host = request
         .uri()
         .host()

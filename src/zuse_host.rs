@@ -292,6 +292,17 @@ fn prepare(
             column: call.span.column,
         });
     }
+    if let Some(index) = steps
+        .iter()
+        .position(|step| step.operation == "updates.apply")
+    {
+        if index + 1 != steps.len() {
+            return Err(format!(
+                "updates.apply must be the final expanded step because it exits this host (expanded step {})",
+                index + 1
+            ));
+        }
+    }
     Ok(Plan {
         steps,
         wait_ms,
@@ -349,8 +360,12 @@ fn describe_step(index: usize, step: &Step) -> Value {
     let mut arguments = step.arguments.clone();
     redact(&mut arguments);
     redact_challenges(&mut arguments);
-    json!({"index":index+1,"operation":step.operation,"arguments":arguments,"read_only":step.read_only,
-        "expanded_line":step.line,"expanded_column":step.column})
+    let mut value = json!({"index":index+1,"operation":step.operation,"arguments":arguments,"read_only":step.read_only,
+        "expanded_line":step.line,"expanded_column":step.column});
+    if step.operation == "updates.apply" {
+        value["terminates_host"] = true.into();
+    }
+    value
 }
 
 fn redact_challenges(value: &mut Value) {
@@ -384,9 +399,50 @@ fn receipt(
     next_step: Option<usize>,
     failed_step: Option<Value>,
 ) -> Value {
-    json!({"ok":status=="completed","status":status,"dry_run":false,"total_steps":plan.steps.len(),
+    let terminal = if status == "completed" {
+        steps.last()
+    } else {
+        failed_step.as_ref()
+    }
+    .filter(|entry| entry["operation"] == "updates.apply")
+    .and_then(|entry| entry.get("result"))
+    .cloned();
+    let mut value = json!({"ok":status=="completed","status":status,"dry_run":false,"total_steps":plan.steps.len(),
         "completed_steps":steps.len(),"next_step":next_step,"failed_step":failed_step,"steps":steps,
-        "planned_wait_ms":plan.wait_ms,"total_elapsed_us":micros(started.elapsed()),"functions":plan.functions})
+        "planned_wait_ms":plan.wait_ms,"total_elapsed_us":micros(started.elapsed()),"functions":plan.functions});
+    if let Some(terminal) = terminal {
+        for key in [
+            "local_sessions_retired",
+            "local_shutdown_attempted",
+            "room_changed",
+            "obs_output_changed",
+        ] {
+            if let Some(field) = terminal.get(key) {
+                value[key] = field.clone();
+            }
+        }
+        if status == "completed"
+            && is_success(&terminal)
+            && terminal["quit_requested"] == true
+            && terminal["exit_required"] == true
+        {
+            for key in [
+                "quit_requested",
+                "exit_required",
+                "restart_requested",
+                "restart_pending",
+                "exit_timeout_seconds",
+                "staged_id",
+                "phase",
+                "receipt_replayed",
+            ] {
+                if let Some(field) = terminal.get(key) {
+                    value[key] = field.clone();
+                }
+            }
+        }
+    }
+    value
 }
 
 fn wait(ms: u64, cancellation: &CancellationToken) -> Result<Value, String> {
@@ -510,6 +566,88 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn update_apply_is_terminal_after_native_function_and_repeat_expansion() {
+        let fixture = Fixture::new();
+        for source in [
+            "config.set(key=\"default_area\",value=999); updates.apply(staged_id=\"fixture\"); config.get()",
+            "fn finish() { updates.apply(staged_id=\"fixture\"); } repeat 2 { finish(); }",
+        ] {
+            let error = execute(&fixture.app, source, None, false, false).unwrap_err();
+            assert!(error.contains("final expanded step"), "{error}");
+        }
+        assert_eq!(
+            fixture.app.call("config.get", json!({})).unwrap()["default_area"],
+            0
+        );
+        assert!(!fixture.directory.join("config.json").exists());
+        let planned = execute(
+            &fixture.app,
+            "fn finish() { updates.apply(staged_id=\"fixture\"); } config.get(); finish()",
+            None,
+            true,
+            false,
+        )
+        .unwrap();
+        assert_eq!(planned["steps"][1]["terminates_host"], true);
+        assert!(
+            execute(
+                &fixture.app,
+                "updates.apply(staged_id=\"fixture\")",
+                None,
+                true,
+                true
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn terminal_update_receipts_preserve_exit_or_partial_shutdown_outcomes() {
+        let plan = prepare(
+            "config.get(); updates.apply(staged_id=\"fixture\")",
+            None,
+            false,
+            false,
+        )
+        .unwrap();
+        for success in [true, false] {
+            let mut calls = Vec::new();
+            let result = execute_plan(&plan, &CancellationToken::default(), |method, _| {
+                calls.push(method.to_owned());
+                if method == "config.get" {
+                    return Ok(json!({"protocol":"rtmp"}));
+                }
+                Ok(json!({
+                    "ok":success,"status":if success {"restart_pending"} else {"failed"},
+                    "staged_id":"fixture","quit_requested":success,"exit_required":success,
+                    "restart_requested":true,"restart_pending":success,"exit_timeout_seconds":60,
+                    "local_shutdown_attempted":true,"local_sessions_retired":success,
+                    "room_changed":false,"obs_output_changed":false
+                }))
+            });
+            assert_eq!(calls, ["config.get", "updates.apply"]);
+            assert_eq!(result["ok"], success);
+            assert_eq!(result["local_shutdown_attempted"], true);
+            assert_eq!(result["local_sessions_retired"], success);
+            assert_eq!(result["room_changed"], false);
+            assert_eq!(result["obs_output_changed"], false);
+            if success {
+                assert_eq!(result["status"], "completed");
+                assert_eq!(result["quit_requested"], true);
+                assert_eq!(result["exit_required"], true);
+                assert_eq!(result["staged_id"], "fixture");
+                assert_eq!(result["completed_steps"], 2);
+            } else {
+                assert_eq!(result["status"], "failed");
+                assert!(result.get("quit_requested").is_none());
+                assert!(result.get("exit_required").is_none());
+                assert_eq!(result["completed_steps"], 1);
+                assert_eq!(result["failed_step"]["operation"], "updates.apply");
+            }
+        }
     }
 
     #[test]

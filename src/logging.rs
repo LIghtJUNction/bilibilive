@@ -9,7 +9,7 @@ use std::{
 
 const LIMIT: u64 = 1024 * 1024;
 
-fn open(directory: &Path) -> Result<fs::File, String> {
+fn open(directory: &Path, blocking: bool) -> Result<fs::File, String> {
     fs::create_dir_all(directory).map_err(|e| e.to_string())?;
     let mut options = fs::OpenOptions::new();
     options.create(true).read(true).write(true).truncate(false);
@@ -21,12 +21,31 @@ fn open(directory: &Path) -> Result<fs::File, String> {
     let lock = options
         .open(directory.join("operations.lock"))
         .map_err(|e| e.to_string())?;
-    lock.lock().map_err(|e| e.to_string())?;
+    if blocking {
+        lock.lock().map_err(|e| e.to_string())?;
+    } else {
+        lock.try_lock().map_err(|e| e.to_string())?;
+    }
     Ok(lock)
 }
 
 pub fn record(directory: &Path, operation: &str, ok: bool) -> Result<(), String> {
-    let _lock = open(directory)?;
+    record_with_lock(directory, operation, ok, true)
+}
+
+/// Update helpers wait for this process to exit. A receipt log held by another
+/// process must never prevent the successful update response from being sent.
+pub fn try_record(directory: &Path, operation: &str, ok: bool) -> Result<(), String> {
+    record_with_lock(directory, operation, ok, false)
+}
+
+fn record_with_lock(
+    directory: &Path,
+    operation: &str,
+    ok: bool,
+    blocking: bool,
+) -> Result<(), String> {
+    let _lock = open(directory, blocking)?;
     let path = directory.join("operations.jsonl");
     if fs::metadata(&path).is_ok_and(|m| m.len() >= LIMIT) {
         let previous = directory.join("operations.previous.jsonl");
@@ -48,7 +67,7 @@ pub fn record(directory: &Path, operation: &str, ok: bool) -> Result<(), String>
 }
 
 pub fn recent(directory: &Path, limit: usize) -> Result<Value, String> {
-    let _lock = open(directory)?;
+    let _lock = open(directory, true)?;
     let mut records = Vec::new();
     for name in ["operations.previous.jsonl", "operations.jsonl"] {
         let path = directory.join(name);
@@ -76,7 +95,7 @@ pub fn recent(directory: &Path, limit: usize) -> Result<Value, String> {
 }
 
 pub fn clear(directory: &Path) -> Result<Value, String> {
-    let _lock = open(directory)?;
+    let _lock = open(directory, true)?;
     for name in ["operations.previous.jsonl", "operations.jsonl"] {
         match fs::remove_file(directory.join(name)) {
             Ok(()) => (),

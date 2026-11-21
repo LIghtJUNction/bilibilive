@@ -72,7 +72,7 @@ impl App {
         stop: &AtomicBool,
     ) -> Result<(), String> {
         self.with_account_lease(||{
-            if stop.load(Ordering::Acquire){return Ok(());}
+            if stop.load(Ordering::Acquire)||self.inner.retiring.load(Ordering::Acquire){return Ok(());}
             let cfg=self.config()?;
             let output=event.pointer("/eventData/outputState").and_then(Value::as_str).unwrap_or("");
             {
@@ -117,6 +117,9 @@ fn run(weak: Weak<Inner>, stop: Arc<AtomicBool>, status: Arc<Mutex<Value>>) {
             read_only: false,
         };
         let ready = app.with_account_lease(|| {
+            if stop.load(Ordering::Acquire) || app.inner.retiring.load(Ordering::Acquire) {
+                return Ok(());
+            }
             let cfg = app.config()?;
             let generation = app
                 .inner
@@ -135,6 +138,9 @@ fn run(weak: Weak<Inner>, stop: Arc<AtomicBool>, status: Arc<Mutex<Value>>) {
             }
             Ok(())
         });
+        if stop.load(Ordering::Acquire) || app.inner.retiring.load(Ordering::Acquire) {
+            break;
+        }
         drop(app);
         if let Err(error) = ready {
             failures = failures.saturating_add(1);

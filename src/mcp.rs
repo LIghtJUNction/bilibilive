@@ -12,6 +12,7 @@ use zmcpio::{
 pub struct Session {
     app: App,
     server: Server<'static>,
+    pending_update_reply: Option<Value>,
 }
 
 const MAX_RESULT_BYTES: usize = 2 * 1024 * 1024;
@@ -22,10 +23,12 @@ impl Session {
         Self {
             app,
             server: Server::new("bilibilive", crate::VERSION),
+            pending_update_reply: None,
         }
     }
 
     pub fn handle(&mut self, input: &[u8]) -> Result<Option<Vec<u8>>, String> {
+        self.pending_update_reply = None;
         if input.len() > 1024 * 1024 {
             return Err("MCP message exceeds 1 MiB".into());
         }
@@ -98,7 +101,20 @@ impl Session {
                         }
                         Err(error) => (json!({"error":error}), true),
                     };
-                    Some(self.encode_result(call.context, value, failed, &mut output)?)
+                    let length = self.encode_result(call.context, value, failed, &mut output)?;
+                    if matches!(operation.name, "updates.apply" | "zuse.run") && !failed {
+                        let reply: Value =
+                            serde_json::from_slice(&output[..length]).map_err(|e| e.to_string())?;
+                        if reply["result"]["isError"] != true {
+                            if let Some(value) = reply.pointer("/result/structuredContent") {
+                                if value["quit_requested"] == true && value["exit_required"] == true
+                                {
+                                    self.pending_update_reply = Some(value.clone());
+                                }
+                            }
+                        }
+                    }
+                    Some(length)
                 } else {
                     Some(
                         self.server
@@ -120,6 +136,13 @@ impl Session {
             Action::Notification(_) | Action::IncomingResponse(_) => None,
         };
         Ok(length.map(|length| output[..length].to_vec()))
+    }
+
+    /// Call only after the corresponding response was written and flushed.
+    pub fn complete_reply(&mut self) -> bool {
+        self.pending_update_reply
+            .take()
+            .is_some_and(|value| self.app.acknowledge_update_reply(&value))
     }
 
     fn encode_result(
@@ -203,6 +226,9 @@ pub fn stdio(app: App) -> Result<(), String> {
             output.write_all(&reply).map_err(|e| e.to_string())?;
             output.write_all(b"\n").map_err(|e| e.to_string())?;
             output.flush().map_err(|e| e.to_string())?;
+            if session.complete_reply() {
+                break;
+            }
         }
         decoder.consume();
     }

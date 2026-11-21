@@ -110,7 +110,7 @@ impl Default for Config {
             title_history: BTreeMap::new(),
             use_system_proxy: false,
             timeout_secs: 15,
-            update_check: false,
+            update_check: true,
         }
     }
 }

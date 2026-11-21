@@ -293,6 +293,20 @@ pub fn operations() -> Vec<Spec> {
             &[],
         ),
         spec(
+            "obs.plugin.status",
+            "Inspect the verified bundled capture plugin and its local OBS installation",
+            true,
+            json!({"bundle_root":text,"manifest_sha256":{"type":"string","maxLength":64},"destination":text}),
+            &[],
+        ),
+        spec(
+            "obs.plugin.install",
+            "Install this version's verified capture plugin; preserve the prior installation if replacement fails",
+            false,
+            json!({"bundle_root":text,"manifest_sha256":{"type":"string","maxLength":64},"destination":text,"replace":boolean}),
+            &[],
+        ),
+        spec(
             "obs.watch.start",
             "Start a persistent OBS observer with automatic reconnects in this application session",
             false,
@@ -519,10 +533,31 @@ pub fn operations() -> Vec<Spec> {
         ),
         spec(
             "updates.check",
-            "Read the current GitHub release; do not install code",
+            "Check the stable release for this installation source without installing code",
             true,
             json!({}),
             &[],
+        ),
+        spec(
+            "updates.status",
+            "Read this installation's update state and download progress without network or installation effects",
+            true,
+            json!({}),
+            &[],
+        ),
+        spec(
+            "updates.download",
+            "Download and verify the exact update identified by a prior check; package-manager installs remain manual",
+            false,
+            json!({"staged_id":{"type":"string","maxLength":128},"wait":boolean}),
+            &["staged_id"],
+        ),
+        spec(
+            "updates.apply",
+            "Schedule the verified update after this host exits; retire local media without stopping the Bilibili room or OBS output",
+            false,
+            json!({"staged_id":{"type":"string","maxLength":128},"restart":boolean}),
+            &["staged_id"],
         ),
     ];
     // RTC operations are provided by the native media worker; token material is

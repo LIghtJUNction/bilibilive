@@ -238,29 +238,35 @@ fn handle(
                 );
             }
             let id = random_token()?;
-            let session = Arc::new(Mutex::new(Session::new(app)));
+            let session = Arc::new(Mutex::new(Session::new(app.clone())));
             pool.insert(id.clone(), (Instant::now(), session.clone()));
             (id, session)
         };
         drop(pool);
-        let reply = session
-            .lock()
-            .map_err(|_| "MCP session lock failed")?
-            .handle(&request.body)?;
-        return match reply {
+        let mut session = session.lock().map_err(|_| "MCP session lock failed")?;
+        let reply = session.handle(&request.body)?;
+        let delivered = match reply {
             Some(body) => respond(&mut stream, 200, &body, Some(&id)),
             None => respond(&mut stream, 202, &[], Some(&id)),
         };
+        if delivered.is_ok() {
+            session.complete_reply();
+        }
+        return delivered;
     }
+    let mut applying_update = false;
     let result = match request.path.as_str() {
         "/api/startLive" => app.call("live.start", json!({})),
         "/api/stopLive" => app.call("live.stop", json!({})),
         "/api/call" => match serde_json::from_slice::<Value>(&request.body) {
             Ok(body) => match body["method"].as_str() {
-                Some(method) => app.call(
-                    method,
-                    body.get("arguments").cloned().unwrap_or_else(|| json!({})),
-                ),
+                Some(method) => {
+                    applying_update = matches!(method, "updates.apply" | "zuse.run");
+                    app.call(
+                        method,
+                        body.get("arguments").cloned().unwrap_or_else(|| json!({})),
+                    )
+                }
                 None => Err("method is required".into()),
             },
             Err(e) => Err(format!("Invalid JSON: {e}")),
@@ -268,16 +274,22 @@ fn handle(
         _ => return respond(&mut stream, 404, br#"{"error":"Unknown endpoint"}"#, None),
     };
     match result {
-        Ok(value) => respond(
-            &mut stream,
-            if crate::app::is_success(&value) {
-                200
-            } else {
-                409
-            },
-            value.to_string().as_bytes(),
-            None,
-        ),
+        Ok(value) => {
+            let delivered = respond(
+                &mut stream,
+                if crate::app::is_success(&value) {
+                    200
+                } else {
+                    409
+                },
+                value.to_string().as_bytes(),
+                None,
+            );
+            if delivered.is_ok() && applying_update {
+                app.acknowledge_update_reply(&value);
+            }
+            delivered
+        }
         Err(error) => respond(
             &mut stream,
             400,
@@ -342,8 +354,21 @@ fn serve_listener(
 ) -> Result<(), String> {
     let sessions: Sessions = Arc::new(Mutex::new(BTreeMap::new()));
     let active = Arc::new(AtomicUsize::new(0));
-    for stream in listener.incoming() {
-        let mut stream = stream.map_err(|e| e.to_string())?;
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    while !app.update_exit_requested() {
+        let mut stream = match listener.accept() {
+            Ok((stream, _)) => stream,
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(Duration::from_millis(50));
+                continue;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error.to_string()),
+        };
+        stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+        stream
+            .set_write_timeout(Some(Duration::from_secs(10)))
+            .map_err(|e| e.to_string())?;
         if active.fetch_add(1, Ordering::AcqRel) >= 16 {
             active.fetch_sub(1, Ordering::AcqRel);
             let _ = respond(&mut stream, 429, br#"{"error":"Busy"}"#, None);
