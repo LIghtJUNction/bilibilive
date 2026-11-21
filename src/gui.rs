@@ -4876,7 +4876,11 @@ impl Desktop {
                 } else {
                     "本次验证已结束，请取消后重新开播。"
                 },
-                x + 29., 285., 14, false, MUTED,
+                x + 29.,
+                285.,
+                14,
+                false,
+                MUTED,
             );
         }
         let text_x = x + 294.;
@@ -5561,10 +5565,18 @@ mod tests {
     fn ready_face_challenges_keep_context_without_duplicate_registration_or_report() {
         for kind in [60024, 60043] {
             let (mut desktop, requests, responses) = component_fixture(false, false);
-            component_reply(&mut desktop, &responses, "live.start", ready_verification(kind));
+            component_reply(
+                &mut desktop,
+                &responses,
+                "live.start",
+                ready_verification(kind),
+            );
             assert!(desktop.verification_qr.is_some());
             assert_eq!(desktop.verification["room_id"], "42");
-            assert_eq!(desktop.verification["message"], "original platform challenge");
+            assert_eq!(
+                desktop.verification["message"],
+                "original platform challenge"
+            );
             assert!(requests.try_recv().is_err());
             desktop.poll_verification();
             let poll = requests.try_recv().unwrap();
@@ -5578,17 +5590,35 @@ mod tests {
     #[test]
     fn verified_face_resumes_the_original_room_area_and_protocol_exactly_once() {
         let (mut desktop, requests, responses) = component_fixture(false, false);
-        component_reply(&mut desktop, &responses, "live.start", ready_verification(60043));
+        component_reply(
+            &mut desktop,
+            &responses,
+            "live.start",
+            ready_verification(60043),
+        );
         desktop.area_id = "21".into();
         desktop.protocol = "rtmp".into();
         desktop.strategy = "fallback".into();
-        component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true,"data":{"status":1}}));
+        component_reply(
+            &mut desktop,
+            &responses,
+            "face.poll",
+            json!({"status":"verified","verified":true,"data":{"status":1}}),
+        );
         let retry = requests.try_recv().unwrap();
         assert_eq!(retry.method, "live.start");
-        assert_eq!(retry.args, ready_verification(60043)["verification"]["start_args"]);
+        assert_eq!(
+            retry.args,
+            ready_verification(60043)["verification"]["start_args"]
+        );
         assert!(desktop.verification.is_null());
         assert!(desktop.verification_created.is_none());
-        component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true}));
+        component_reply(
+            &mut desktop,
+            &responses,
+            "face.poll",
+            json!({"status":"verified","verified":true}),
+        );
         assert!(requests.try_recv().is_err());
     }
 
@@ -5596,33 +5626,72 @@ mod tests {
     fn pending_failed_and_cancelled_face_verification_never_resume_a_broadcast() {
         for status in ["pending", "expired_or_failed"] {
             let (mut desktop, requests, responses) = component_fixture(false, false);
-            component_reply(&mut desktop, &responses, "live.start", ready_verification(60043));
-            component_reply(&mut desktop, &responses, "face.poll", json!({"status":status,"verified":false}));
+            component_reply(
+                &mut desktop,
+                &responses,
+                "live.start",
+                ready_verification(60043),
+            );
+            component_reply(
+                &mut desktop,
+                &responses,
+                "face.poll",
+                json!({"status":status,"verified":false}),
+            );
             assert!(requests.try_recv().is_err());
             if status == "expired_or_failed" {
                 assert!(desktop.verification_created.is_none());
                 assert!(desktop.verification_qr.is_none());
             }
             desktop.clear_verification();
-            component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true}));
+            component_reply(
+                &mut desktop,
+                &responses,
+                "face.poll",
+                json!({"status":"verified","verified":true}),
+            );
             assert!(requests.try_recv().is_err());
         }
         let (mut desktop, requests, responses) = component_fixture(false, false);
-        component_reply(&mut desktop, &responses, "live.start", ready_verification(60024));
-        responses.send(Response { method:"face.poll".into(),result:Err("fixture transport failed".into()) }).unwrap();
+        component_reply(
+            &mut desktop,
+            &responses,
+            "live.start",
+            ready_verification(60024),
+        );
+        responses
+            .send(Response {
+                method: "face.poll".into(),
+                result: Err("fixture transport failed".into()),
+            })
+            .unwrap();
         desktop.receive();
-        assert!(desktop.verification_message.contains("fixture transport failed"));
+        assert!(
+            desktop
+                .verification_message
+                .contains("fixture transport failed")
+        );
         assert!(requests.try_recv().is_err());
     }
 
     #[test]
     fn a_new_start_clears_the_previous_challenge_before_its_late_poll_response() {
         let (mut desktop, requests, responses) = component_fixture(false, false);
-        component_reply(&mut desktop, &responses, "live.start", ready_verification(60024));
+        component_reply(
+            &mut desktop,
+            &responses,
+            "live.start",
+            ready_verification(60024),
+        );
         desktop.area_id = "21".into();
         desktop.start_live();
         assert_eq!(requests.try_recv().unwrap().args["area_id"], 21);
-        component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true}));
+        component_reply(
+            &mut desktop,
+            &responses,
+            "face.poll",
+            json!({"status":"verified","verified":true}),
+        );
         assert!(desktop.verification.is_null());
         assert!(requests.try_recv().is_err());
     }

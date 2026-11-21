@@ -327,17 +327,20 @@ impl App {
         let context = self.credentials()?;
         let jar = CookieJar::parse(&context.cookie)?;
         let client = self.client_for_config(&context.cookie, &context.config)?;
-        if ["buvid3", "buvid4"].iter().all(|name| {
-            jar.get(name).is_some_and(|value| !value.is_empty())
-        }) {
+        if ["buvid3", "buvid4"]
+            .iter()
+            .all(|name| jar.get(name).is_some_and(|value| !value.is_empty()))
+        {
             return Ok(client);
         }
         // QR login does not always issue device cookies. Persist the official
         // initialization before starting a challenge, so later face.poll calls
         // do not each construct a client with a different fallback device ID.
-        let mut refreshed = client.call("auth.refresh", &json!({}))
-            .map_err(|error| format!("Could not initialize the Bilibili broadcast session: {error}"))?;
-        let cookie = refreshed.as_object_mut()
+        let mut refreshed = client.call("auth.refresh", &json!({})).map_err(|error| {
+            format!("Could not initialize the Bilibili broadcast session: {error}")
+        })?;
+        let cookie = refreshed
+            .as_object_mut()
             .and_then(|value| value.remove("_private_cookie"))
             .and_then(|value| value.as_str().map(str::to_owned))
             .ok_or("Bilibili session initialization omitted its credential update")?;
@@ -793,7 +796,9 @@ impl App {
                 // account lease as initialization, delay and the start request.
                 if method == "live.start" {
                     if let Some(expected) = args.get("expected_uid") {
-                        let expected = expected.as_str().map(str::to_owned)
+                        let expected = expected
+                            .as_str()
+                            .map(str::to_owned)
                             .or_else(|| expected.as_u64().map(|uid| uid.to_string()))
                             .filter(|uid| uid.parse::<u64>().is_ok_and(|uid| uid > 0))
                             .ok_or("expected_uid must be a positive integer")?;
@@ -1692,7 +1697,10 @@ mod account_lease_tests {
         app.call("account.use", json!({"name":"beta"})).unwrap();
         // The new account deliberately lacks device cookies. The UID check
         // must fail before even attempting ticket or device initialization.
-        app.set_cookie_override("DedeUserID=222; SESSDATA=other-fixture; bili_jct=other-csrf".into()).unwrap();
+        app.set_cookie_override(
+            "DedeUserID=222; SESSDATA=other-fixture; bili_jct=other-csrf".into(),
+        )
+        .unwrap();
         let error = app.call("live.start", retry).unwrap_err();
         assert!(error.contains("Account changed during face verification"));
         assert!(!error.contains("other-fixture"));

@@ -371,7 +371,7 @@ impl ImagePreview {
                 source.height,
             );
             Arc::new(image::imageops::resize(
-                &selected,
+                &*selected,
                 size.0,
                 size.1,
                 FilterType::Triangle,
@@ -396,7 +396,13 @@ impl ImagePreview {
             return;
         }
         let raster = self.raster(image, source, destination);
-        paint_image(canvas, &raster, CropRect::full(&raster), destination, opacity);
+        paint_image(
+            canvas,
+            &raster,
+            CropRect::full(&raster),
+            destination,
+            opacity,
+        );
     }
 }
 
@@ -987,11 +993,7 @@ mod tests {
         let destination = Rect::new(0., 0., 16., 9.);
         let first = preview.raster(&original, source, destination);
         assert!(first.pixels().all(|pixel| pixel.0 == [0, 0, 255, 255]));
-        let replacement = Arc::new(RgbaImage::from_pixel(
-            64,
-            36,
-            image::Rgba([0, 255, 0, 255]),
-        ));
+        let replacement = Arc::new(RgbaImage::from_pixel(64, 36, image::Rgba([0, 255, 0, 255])));
         let next = preview.raster(&replacement, source, destination);
         assert!(!Arc::ptr_eq(&first, &next));
         assert!(next.pixels().all(|pixel| pixel.0 == [0, 255, 0, 255]));

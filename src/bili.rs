@@ -795,9 +795,10 @@ impl BiliClient {
                 &created.saturating_add(ttl).to_string(),
             )?;
         }
-        if ["buvid3", "buvid4"].iter().any(|name| {
-            jar.get(name).is_none_or(|value| value.is_empty())
-        }) {
+        if ["buvid3", "buvid4"]
+            .iter()
+            .any(|name| jar.get(name).is_none_or(|value| value.is_empty()))
+        {
             let data = self.data(
                 self.send_raw(self.prepare(
                     "GET",
@@ -1198,7 +1199,9 @@ impl BiliClient {
                 // V2 must register its voucher before the challenge is reported
                 // and displayed, matching StartLive's popup_face_widget flow.
                 self.face_register(&json!({"v_voucher":voucher}))
-                    .map_err(|error| format!("Could not prepare Bilibili face verification: {error}"))?
+                    .map_err(|error| {
+                        format!("Could not prepare Bilibili face verification: {error}")
+                    })?
             };
             // Reporting initializes the platform's verification flow. Reporting
             // only after a successful scan leaves the phone on a system error
@@ -2800,7 +2803,9 @@ mod tests {
         (client, server)
     }
 
-    fn verification_fixture(bodies: Vec<Value>) -> (BiliClient, std::thread::JoinHandle<Vec<String>>) {
+    fn verification_fixture(
+        bodies: Vec<Value>,
+    ) -> (BiliClient, std::thread::JoinHandle<Vec<String>>) {
         use std::io::{Read, Write};
         use std::net::TcpListener;
         use std::time::Instant;
@@ -2822,7 +2827,9 @@ mod tests {
                     }
                 };
                 socket.set_nonblocking(false).unwrap();
-                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
                 let mut request = Vec::new();
                 let mut buf = [0u8; 1024];
                 loop {
@@ -2831,10 +2838,14 @@ mod tests {
                     request.extend_from_slice(&buf[..count]);
                     if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
                         let head = String::from_utf8_lossy(&request[..end]);
-                        let length = head.lines().find_map(|line| {
-                            line.to_ascii_lowercase().strip_prefix("content-length:")
-                                .map(|value| value.trim().parse::<usize>().unwrap())
-                        }).unwrap_or(0);
+                        let length = head
+                            .lines()
+                            .find_map(|line| {
+                                line.to_ascii_lowercase()
+                                    .strip_prefix("content-length:")
+                                    .map(|value| value.trim().parse::<usize>().unwrap())
+                            })
+                            .unwrap_or(0);
                         if request.len() >= end + 4 + length {
                             break;
                         }
@@ -2849,7 +2860,8 @@ mod tests {
         });
         let mut client = BiliClient::new(
             "SESSDATA=fixture-secret; bili_jct=fixture-csrf; DedeUserID=123; buvid3=fixture-device",
-        ).unwrap();
+        )
+        .unwrap();
         client.origins.live = format!("http://{address}");
         client.origins.api = format!("http://{address}");
         (client, server)
@@ -2858,15 +2870,21 @@ mod tests {
     fn verification_content() -> String {
         let payload = br#"{"type":"realname","token":"fixture-token"}"#;
         let digest = Sha256::digest(b"abc1700000000");
-        let bytes: Vec<_> = payload.iter().enumerate()
-            .map(|(index, byte)| byte ^ digest[index % 16]).collect();
+        let bytes: Vec<_> = payload
+            .iter()
+            .enumerate()
+            .map(|(index, byte)| byte ^ digest[index % 16])
+            .collect();
         BASE64.encode(format!("1700000000|salt|9|{}", BASE64.encode(bytes)))
     }
 
     fn request_form(request: &str) -> Fields {
         let body = request.split("\r\n\r\n").nth(1).unwrap();
-        reqwest::Url::parse(&format!("http://fixture/?{body}")).unwrap()
-            .query_pairs().into_owned().collect()
+        reqwest::Url::parse(&format!("http://fixture/?{body}"))
+            .unwrap()
+            .query_pairs()
+            .into_owned()
+            .collect()
     }
 
     #[test]
@@ -3042,7 +3060,10 @@ mod tests {
             });
             let (client, server) = verification_fixture(responses);
             let result = client
-                .call("live.start", &json!({"room_id":42,"area_id":371,"protocol":"srt","strategy":"prefer"}))
+                .call(
+                    "live.start",
+                    &json!({"room_id":42,"area_id":371,"protocol":"srt","strategy":"prefer"}),
+                )
                 .unwrap();
             assert_eq!(result["status"], "verification_required");
             let verification = &result["verification"];
@@ -3051,13 +3072,21 @@ mod tests {
             assert_eq!(verification["room_id"], "42");
             assert_eq!(verification["area_id"], "371");
             assert_eq!(verification["message"], message);
-            assert_eq!(verification["start_args"], json!({"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer","expected_uid":"123"}));
+            assert_eq!(
+                verification["start_args"],
+                json!({"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer","expected_uid":"123"})
+            );
             crate::schema::validate("live.start", &verification["start_args"]).unwrap();
             assert!(result.get("key").is_none());
             assert!(!crate::app::is_success(&result));
-            let poll = client.call("face.poll", &json!({
-                "type":code,"room_id":verification["room_id"],"token":verification["token"]
-            })).unwrap();
+            let poll = client
+                .call(
+                    "face.poll",
+                    &json!({
+                        "type":code,"room_id":verification["room_id"],"token":verification["token"]
+                    }),
+                )
+                .unwrap();
             assert_eq!(poll["verified"], true);
             let requests = server.join().unwrap();
             assert!(requests[0].starts_with("POST /room/v1/Room/startLive "));
@@ -3066,8 +3095,12 @@ mod tests {
             assert!(report.starts_with("POST /xlive/app-blink/v1/preLive/ReportFaceRecognition "));
             let mut report_form = request_form(report);
             for (key, value) in [
-                ("area_v2_id", "371"), ("room_id", "42"), ("scene", "startLive"),
-                ("face_auth_message", message), ("csrf", "fixture-csrf"), ("csrf_token", "fixture-csrf")
+                ("area_v2_id", "371"),
+                ("room_id", "42"),
+                ("scene", "startLive"),
+                ("face_auth_message", message),
+                ("csrf", "fixture-csrf"),
+                ("csrf_token", "fixture-csrf"),
             ] {
                 assert_eq!(report_form.remove(key).as_deref(), Some(value));
             }
@@ -3075,11 +3108,19 @@ mod tests {
             let signature = report_form.remove("sign").unwrap();
             // Independently verify the upstream signature scope: only public
             // profile fields are signed; challenge fields and CSRF follow it.
-            let preimage = report_form.iter().map(|(key, value)| format!("{key}={value}"))
-                .collect::<Vec<_>>().join("&") + "af125a0d5279fd576c1b4418a3e8276d";
+            let preimage = report_form
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("&")
+                + "af125a0d5279fd576c1b4418a3e8276d";
             assert_eq!(signature, format!("{:x}", md5::compute(preimage)));
             for request in &requests {
-                assert!(request.to_ascii_lowercase().contains("buvid: fixture-device\r\n"));
+                assert!(
+                    request
+                        .to_ascii_lowercase()
+                        .contains("buvid: fixture-device\r\n")
+                );
                 assert!(request.contains("buvid3=fixture-device"));
             }
             let poll_request = requests.last().unwrap();
@@ -3098,7 +3139,11 @@ mod tests {
                 assert!(url.starts_with("https://www.bilibili.com/h5/risk-control/realname?t="));
             } else {
                 assert_eq!(verification["url"], "https://www.bilibili.com/verify");
-                assert!(poll_request.starts_with("POST /xlive/app-blink/v1/preLive/IsUserIdentifiedByFaceAuth "));
+                assert!(
+                    poll_request.starts_with(
+                        "POST /xlive/app-blink/v1/preLive/IsUserIdentifiedByFaceAuth "
+                    )
+                );
                 assert_eq!(poll_form["room_id"], "42");
                 assert_eq!(poll_form["face_auth_code"], "60024");
             }
@@ -3111,7 +3156,9 @@ mod tests {
             json!({"code":60024,"message":"verification required","data":{"qr":"https://www.bilibili.com/verify"}}),
             json!({"code":-400,"message":"fixture report rejected"}),
         ]);
-        let error = client.call("live.start", &json!({"room_id":42,"area_id":371})).unwrap_err();
+        let error = client
+            .call("live.start", &json!({"room_id":42,"area_id":371}))
+            .unwrap_err();
         assert!(error.contains("initialize Bilibili face verification"));
         assert!(error.contains("-400"));
         assert_eq!(server.join().unwrap().len(), 2);
@@ -3123,7 +3170,9 @@ mod tests {
             json!({"code":60043,"message":"verification required","data":{"risk_extra":{"v_voucher":"12345678abcdef"}}}),
             json!({"code":-400,"message":"fixture voucher expired"}),
         ]);
-        let error = client.call("live.start", &json!({"room_id":42,"area_id":371})).unwrap_err();
+        let error = client
+            .call("live.start", &json!({"room_id":42,"area_id":371}))
+            .unwrap_err();
         assert!(error.contains("prepare Bilibili face verification"));
         let requests = server.join().unwrap();
         assert_eq!(requests.len(), 2);
@@ -3141,7 +3190,12 @@ mod tests {
             (60043, json!({"status":3}), "expired_or_failed"),
         ] {
             let (client, server) = verification_fixture(vec![json!({"code":0,"data":response})]);
-            let result = client.call("face.poll", &json!({"type":kind,"room_id":42,"token":"fixture-token"})).unwrap();
+            let result = client
+                .call(
+                    "face.poll",
+                    &json!({"type":kind,"room_id":42,"token":"fixture-token"}),
+                )
+                .unwrap();
             assert_eq!(result["status"], expected);
             assert_eq!(result["verified"], expected == "verified");
             assert_eq!(server.join().unwrap().len(), 1);
@@ -3162,7 +3216,11 @@ mod tests {
                 now() + 3600, device_cookies
             )).unwrap();
             let mut refreshed = initial.call("auth.refresh", &json!({})).unwrap();
-            let cookie = refreshed.as_object_mut().unwrap().remove("_private_cookie").unwrap();
+            let cookie = refreshed
+                .as_object_mut()
+                .unwrap()
+                .remove("_private_cookie")
+                .unwrap();
             let cookie = cookie.as_str().unwrap();
             let new_client = || {
                 let mut client = BiliClient::new(cookie).unwrap();
@@ -3170,13 +3228,24 @@ mod tests {
                 client.origins.api = initial.origins.api.clone();
                 client
             };
-            let start = new_client().call("live.start", &json!({"room_id":42,"area_id":371})).unwrap();
+            let start = new_client()
+                .call("live.start", &json!({"room_id":42,"area_id":371}))
+                .unwrap();
             assert_eq!(start["status"], "verification_required");
-            assert_eq!(new_client().call("face.poll", &json!({"type":60024,"room_id":42})).unwrap()["verified"], true);
+            assert_eq!(
+                new_client()
+                    .call("face.poll", &json!({"type":60024,"room_id":42}))
+                    .unwrap()["verified"],
+                true
+            );
             let requests = server.join().unwrap();
             assert!(requests[0].starts_with("GET /x/frontend/finger/spi "));
             for request in &requests[1..] {
-                assert!(request.to_ascii_lowercase().contains("buvid: official-fixture-device\r\n"));
+                assert!(
+                    request
+                        .to_ascii_lowercase()
+                        .contains("buvid: official-fixture-device\r\n")
+                );
                 assert!(request.contains("buvid3=official-fixture-device"));
                 assert!(request.contains("buvid4=official-fixture-four"));
             }
