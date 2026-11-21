@@ -66,6 +66,21 @@ jobs:
       RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
       RELEASE_COMMIT: ${{ needs.source.outputs.source_sha }}
     steps:
+      - name: Check out immutable release tooling
+        if: runner.os == 'Linux'
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+      - name: Preserve tooling outside the frozen source
+        if: runner.os == 'Linux'
+        shell: python
+        run: |
+          import os, pathlib, shutil
+          tooling = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bilibilive-release-tools'
+          tooling.mkdir()
+          for name in ('prepare-cargo-worktrees.py', 'test_prepare_cargo_worktrees.py'):
+              shutil.copy2(pathlib.Path('.github/scripts') / name, tooling / name)
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ needs.source.outputs.source_sha }}
@@ -115,6 +130,22 @@ jobs:
           BILIBILIVE_GUI_FRAMES: '12'
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: xvfb-run -a target/release/bilibilive gui --demo
+      - name: Prepare exact Git worktrees for registry verification
+        if: runner.os == 'Linux'
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          temporary = pathlib.Path(os.environ['RUNNER_TEMP'])
+          tooling = temporary / 'bilibilive-release-tools'
+          subprocess.run([sys.executable, str(tooling / 'test_prepare_cargo_worktrees.py')], check=True)
+          base = pathlib.Path(os.environ.get('CARGO_HOME', str(pathlib.Path.home() / '.cargo')))
+          subprocess.run([
+              sys.executable, str(tooling / 'prepare-cargo-worktrees.py'),
+              '--source', str(pathlib.Path.cwd()), '--base-cargo-home', str(base),
+              '--output', str(temporary / 'bilibilive-worktree-cargo'),
+              '--receipt', str(temporary / 'bilibilive-worktree-cargo.json'),
+              '--github-env', os.environ['GITHUB_ENV'],
+          ], check=True)
       - name: Verify and package the registry source projection
         if: runner.os == 'Linux'
         env:
