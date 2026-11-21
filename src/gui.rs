@@ -202,6 +202,7 @@ struct Desktop {
     update_apply_requested: bool,
     quit_requested: bool,
     local_sessions_retired: bool,
+    local_shutdown_attempted: bool,
     plugin: Value,
     plugin_pending: bool,
     plugin_error: String,
@@ -527,9 +528,17 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
     }
     drop(desktop);
     if applied_update {
-        worker
-            .join()
-            .map_err(|_| "The background dispatcher failed during update shutdown")?;
+        // App preparation already retired media before starting the helper. A
+        // read-only request in flight must not outlast the helper's exit limit.
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !worker.is_finished() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if worker.is_finished() {
+            worker
+                .join()
+                .map_err(|_| "The background dispatcher failed during update shutdown")?;
+        }
     }
     Ok(())
 }
@@ -673,6 +682,7 @@ impl Desktop {
             update_apply_requested: false,
             quit_requested: false,
             local_sessions_retired: false,
+            local_shutdown_attempted: false,
             plugin: json!({}),
             plugin_pending: false,
             plugin_error: String::new(),
@@ -854,11 +864,7 @@ impl Desktop {
                             let success =
                                 crate::app::is_success(&value) && self.updates["phase"] != "failed";
                             if method == "updates.apply" {
-                                if self.updates["local_sessions_retired"] == true {
-                                    self.local_sessions_retired = true;
-                                    self.events_connected = false;
-                                    self.obs_watch_requested = Some(false);
-                                }
+                                self.observe_local_shutdown(&value);
                                 self.quit_requested = self.update_apply_requested
                                     && success
                                     && self.updates["quit_requested"] == true
@@ -868,6 +874,8 @@ impl Desktop {
                                     self.notice(
                                         if self.local_sessions_retired {
                                             "本地媒体连接已停止；更新未完成，请查看错误后重试。直播间状态保留。"
+                                        } else if self.local_shutdown_attempted {
+                                            "本地会话关闭未完成；更新未应用，请查看错误后处理。"
                                         } else {
                                             "更新尚未应用，请查看状态后重试。"
                                         },
@@ -1233,9 +1241,25 @@ impl Desktop {
                             self.script_output = serde_json::to_string_pretty(&value)
                                 .unwrap_or_else(|_| value.to_string());
                             let success = crate::app::is_success(&value);
+                            if method == "zuse.run" {
+                                self.observe_local_shutdown(&value);
+                                if success
+                                    && value["status"] == "completed"
+                                    && value["quit_requested"] == true
+                                    && value["exit_required"] == true
+                                    && !self.demo
+                                    && !self.read_only
+                                {
+                                    self.quit_requested = true;
+                                }
+                            }
                             self.notice(
                                 if success {
                                     "自动化操作已完成。"
+                                } else if self.local_sessions_retired {
+                                    "本地媒体连接已停止；更新未完成，请查看执行结果。"
+                                } else if self.local_shutdown_attempted {
+                                    "本地会话关闭未完成；更新未应用，请查看执行结果后处理。"
                                 } else {
                                     "自动化操作未完成，请查看执行结果详情。"
                                 },
@@ -1278,6 +1302,22 @@ impl Desktop {
         self.activity
             .insert(0, (action_label(method).into(), success));
         self.activity.truncate(5);
+    }
+
+    fn observe_local_shutdown(&mut self, value: &Value) {
+        for result in [Some(value), value.pointer("/failed_step/result")]
+            .into_iter()
+            .flatten()
+        {
+            let retired = result["local_sessions_retired"] == true;
+            let attempted = retired || result["local_shutdown_attempted"] == true;
+            self.local_sessions_retired |= retired;
+            self.local_shutdown_attempted |= attempted;
+            if attempted {
+                self.events_connected = false;
+                self.obs_watch_requested = Some(false);
+            }
+        }
     }
 
     fn load_config(&mut self) {
@@ -1617,7 +1657,7 @@ impl Desktop {
         }
         if !self.demo
             && !self.read_only
-            && !self.local_sessions_retired
+            && !self.local_shutdown_attempted
             && self.config_loaded
             && self.pending == 0
         {
@@ -3950,6 +3990,8 @@ impl Desktop {
             "演示模式 · 所有下载与安装操作均已关闭"
         } else if self.local_sessions_retired && !self.quit_requested {
             "本地媒体连接已停止；更新未完成，直播间状态保留"
+        } else if self.local_shutdown_attempted && !self.quit_requested {
+            "本地会话关闭未完成；更新未应用，请查看错误"
         } else {
             match phase.as_str() {
                 "available" => "发现新版本，可选择下载。",
@@ -5279,6 +5321,51 @@ mod tests {
         assert!(!desktop.notice.as_ref().unwrap().1);
         desktop.tick();
         assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn terminal_zuse_update_exits_while_partial_shutdown_failures_keep_the_window() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        component_reply(
+            &mut desktop,
+            &responses,
+            "zuse.run",
+            json!({
+                "ok":true,"status":"completed","completed_steps":1,
+                "quit_requested":true,"exit_required":true,"restart_pending":true,
+                "local_sessions_retired":true
+            }),
+        );
+        assert!(desktop.quit_requested);
+        assert!(desktop.local_sessions_retired);
+        assert!(requests.try_recv().is_err());
+
+        for method in ["updates.apply", "zuse.run"] {
+            let (mut desktop, requests, responses) = component_fixture(false, false);
+            desktop.config = json!({"obs_auto_connect":true});
+            desktop.load_config();
+            desktop.startup_update_handled = true;
+            desktop.events_connected = true;
+            let failure = json!({
+                "ok":false,"status":"failed","phase":"failed",
+                "local_shutdown_attempted":true,"local_sessions_retired":false,
+                "error":"fixture media shutdown incomplete"
+            });
+            let receipt = if method == "zuse.run" {
+                json!({"ok":false,"status":"failed","completed_steps":0,
+                    "failed_step":{"operation":"updates.apply","ok":false,"result":failure},
+                    "quit_requested":true,"exit_required":true})
+            } else {
+                failure
+            };
+            component_reply(&mut desktop, &responses, method, receipt);
+            assert!(!desktop.quit_requested);
+            assert!(desktop.local_shutdown_attempted);
+            assert!(!desktop.local_sessions_retired);
+            assert!(!desktop.events_connected);
+            desktop.tick();
+            assert!(requests.try_recv().is_err());
+        }
     }
 
     #[test]
