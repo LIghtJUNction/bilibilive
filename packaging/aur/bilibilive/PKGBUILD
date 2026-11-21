@@ -1,7 +1,7 @@
 # Maintainer: LIghtJUNction <https://github.com/LIghtJUNction>
 pkgbase=bilibilive
 pkgname=('bilibilive' 'bilibilive-obs-plugin')
-pkgver=0.1.2
+pkgver=0.1.3
 pkgrel=1
 pkgdesc='Native Bilibili streaming studio with CLI, MCP, zuse and zgpui'
 arch=('x86_64' 'aarch64')
@@ -16,7 +16,7 @@ sha256sums=('SKIP')
 
 prepare() {
   cd "$srcdir/bilibilive"
-  cargo fetch --locked
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/^host: //p')"
 }
 
 build() {
