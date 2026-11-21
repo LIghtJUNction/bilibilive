@@ -39,16 +39,47 @@ class NativePayloadTests(unittest.TestCase):
         self.assertFalse((self.root.parent/"file").exists())
 
     def test_tar_rejects_escaping_link_and_accepts_internal_framework_link(self):
-        bad=self.root/"bad.tar"
-        with tarfile.open(bad,"w") as out:
-            member=tarfile.TarInfo("link");member.type=tarfile.SYMTYPE;member.linkname="../../elsewhere";out.addfile(member)
-        with self.assertRaises(RuntimeError):native.extract(bad,self.root/"bad")
+        for index,target in enumerate(("../../elsewhere","/absolute","C:/Windows/file","C:relative","library:stream",r"..\outside")):
+            with self.subTest(target=target):
+                bad=self.root/f"bad-{index}.tar"
+                with tarfile.open(bad,"w") as out:
+                    member=tarfile.TarInfo("link");member.type=tarfile.SYMTYPE;member.linkname=target;out.addfile(member)
+                with self.assertRaises(RuntimeError):native.extract(bad,self.root/f"bad-{index}")
         good=self.root/"good.tar"
         with tarfile.open(good,"w") as out:
             member=tarfile.TarInfo("Versions/A/library");member.size=4;out.addfile(member,io.BytesIO(b"code"))
             member=tarfile.TarInfo("library");member.type=tarfile.SYMTYPE;member.linkname="Versions/A/library";out.addfile(member)
+            member=tarfile.TarInfo("hard-library");member.type=tarfile.LNKTYPE;member.linkname="Versions/A/library";out.addfile(member)
         native.extract(good,self.root/"good")
         self.assertEqual((self.root/"good/library").read_bytes(),b"code")
+        self.assertEqual((self.root/"good/hard-library").read_bytes(),b"code")
+        if (self.root/"good/library").is_symlink():
+            self.assertEqual(os.readlink(self.root/"good/library"),
+                             "Versions\\A\\library" if os.name=="nt" else "Versions/A/library")
+
+    def test_tar_filter_keeps_safety_and_normalizes_only_windows_symbolic_targets(self):
+        member=tarfile.TarInfo("library");member.type=tarfile.SYMTYPE;member.linkname="Versions/A/library"
+        destination=str(self.root/"filter")
+        windows=native.sdk_tar_filter(member,destination,windows=True)
+        self.assertEqual(windows.linkname,"Versions\\A\\library")
+        self.assertEqual(member.linkname,"Versions/A/library")
+        native_filtered=tarfile.data_filter(member,destination)
+        self.assertEqual(native.sdk_tar_filter(member,destination,windows=False).linkname,native_filtered.linkname)
+        hard=tarfile.TarInfo("hard-library");hard.type=tarfile.LNKTYPE;hard.linkname="Versions/A/library"
+        self.assertEqual(native.sdk_tar_filter(hard,destination,windows=True).linkname,
+                         tarfile.data_filter(hard,destination).linkname)
+        escaped=tarfile.TarInfo("outside");escaped.type=tarfile.SYMTYPE;escaped.linkname="../../outside"
+        with self.assertRaises(tarfile.FilterError):native.sdk_tar_filter(escaped,destination,windows=True)
+
+    def test_tar_internal_file_link_falls_back_without_symlink_permission(self):
+        archive=self.root/"fallback.tar"
+        with tarfile.open(archive,"w") as out:
+            member=tarfile.TarInfo("nested/library");member.size=4;out.addfile(member,io.BytesIO(b"code"))
+            member=tarfile.TarInfo("library");member.type=tarfile.SYMTYPE;member.linkname="nested/library";out.addfile(member)
+        with patch.object(tarfile.os,"symlink",side_effect=OSError("fixture: no symlink privilege")):
+            native.extract(archive,self.root/"fallback")
+        self.assertFalse((self.root/"fallback/library").is_symlink())
+        self.assertEqual((self.root/"fallback/library").read_bytes(),b"code")
 
     def test_pe_architecture_and_truncated_header(self):
         data=bytearray(256);data[:2]=b"MZ";struct.pack_into("<I",data,0x3c,128);data[128:132]=b"PE\0\0";struct.pack_into("<H",data,132,0x8664)

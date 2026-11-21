@@ -250,6 +250,17 @@ def archive_name(name: str) -> PurePosixPath:
     return path
 
 
+def sdk_tar_filter(member: tarfile.TarInfo, destination: str, *, windows=os.name == "nt"):
+    # Keep Python's data safety checks, including resolution through links that
+    # earlier members created. Python 3.12.10 leaves POSIX separators in Windows
+    # symlink targets; CreateSymbolicLink then creates an unreadable link.
+    # CPython gh-57911 / PR 138309 fixes the same path-separator conversion.
+    filtered = tarfile.data_filter(member, destination)
+    if windows and filtered.issym():
+        return filtered.replace(linkname=filtered.linkname.replace("/", "\\"), deep=False)
+    return filtered
+
+
 def extract(archive: Path, destination: Path) -> None:
     require(not destination.exists(), "Native SDK extraction destination already exists")
     destination.mkdir(parents=True)
@@ -275,11 +286,14 @@ def extract(archive: Path, destination: Path) -> None:
                 require(total <= 12 * 1024**3, "SDK archive uncompressed size exceeds its bound")
                 require(info.isfile() or info.isdir() or info.issym() or info.islnk(), "SDK archive contains a device or special file")
                 if info.issym() or info.islnk():
+                    require("\\" not in info.linkname and "\x00" not in info.linkname,
+                            "SDK archive has an invalid POSIX link target")
                     link = PurePosixPath(info.linkname)
-                    require(not link.is_absolute(), "SDK archive has an absolute link")
+                    require(not link.is_absolute() and not any(":" in part for part in link.parts),
+                            "SDK archive has an absolute link or Windows drive/stream target")
                     base = destination / (name.parent if info.issym() else PurePosixPath())
                     require((base / str(link)).resolve().is_relative_to(destination.resolve()), "SDK archive link escapes its root")
-            source.extractall(destination, filter="data")
+            source.extractall(destination, filter=sdk_tar_filter)
 
 
 def obs_dependencies(source: Path, target: str) -> tuple[list[Path], list[dict], str]:
