@@ -4,13 +4,53 @@ on:
   push:
     tags: ['v[0-9]*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to build and publish, for example v0.1.0
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
+  source:
+    name: Freeze release tag
+    runs-on: ubuntu-latest
+    outputs:
+      release_tag: ${{ steps.identity.outputs.release_tag }}
+      source_sha: ${{ steps.identity.outputs.source_sha }}
+      tag_object: ${{ steps.identity.outputs.tag_object }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ format('refs/tags/{0}', inputs.release_tag || github.ref_name) }}
+          persist-credentials: false
+      - name: Verify tag and freeze its source commit
+        id: identity
+        shell: python
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          import os, pathlib, subprocess, tomllib
+          tag = os.environ['RELEASE_TAG']
+          reference = 'refs/tags/' + tag
+          subprocess.run(['git', 'check-ref-format', reference], check=True)
+          version = tomllib.loads(pathlib.Path('Cargo.toml').read_text())['package']['version']
+          if tag != 'v' + version:
+              raise SystemExit('Release tag must match Cargo.toml')
+          commit = subprocess.check_output(['git', 'rev-parse', '--verify', 'HEAD'], text=True).strip()
+          tag_object = subprocess.check_output(['git', 'rev-parse', '--verify', reference], text=True).strip()
+          tag_commit = subprocess.check_output(['git', 'rev-parse', '--verify', reference + '^{commit}'], text=True).strip()
+          if commit != tag_commit:
+              raise SystemExit('Checkout does not match the requested release tag')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.write(f'release_tag={tag}\nsource_sha={commit}\ntag_object={tag_object}\n')
+          print('Frozen release', tag, 'at', commit)
+
   native:
     name: Native ${{ matrix.platform }}
+    needs: source
     strategy:
       fail-fast: false
       matrix:
@@ -22,8 +62,14 @@ jobs:
           - platform: windows
             os: windows-latest
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
+      RELEASE_COMMIT: ${{ needs.source.outputs.source_sha }}
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.source_sha }}
+          persist-credentials: false
       - uses: dtolnay/rust-toolchain@stable
       - name: Initialize native Windows compiler
         if: runner.os == 'Windows'
@@ -34,23 +80,30 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config libx11-dev libfreetype-dev libfontconfig-dev libgl1-mesa-dev cmake ninja-build libobs-dev qt6-base-dev libsimde-dev xvfb
       - name: Check version and locked sources
-        shell: bash
+        shell: python
         run: |
-          python - <<'PY'
-          import os, pathlib, tomllib
+          import os, pathlib, subprocess, tomllib
           doc = tomllib.loads(pathlib.Path('Cargo.toml').read_text())
           version = doc['package']['version']
-          if os.environ['GITHUB_REF'].startswith('refs/tags/'):
-              assert os.environ['GITHUB_REF_NAME'] == 'v' + version, 'Release tag must match Cargo.toml'
+          if os.environ['RELEASE_TAG'] != 'v' + version:
+              raise SystemExit('Release tag must match Cargo.toml')
+          commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          if commit != os.environ['RELEASE_COMMIT']:
+              raise SystemExit('Native build source differs from the frozen release commit')
           print('Building bilibilive', version)
-          PY
-          cargo metadata --locked --format-version 1 > /dev/null
+          subprocess.run(['cargo', 'metadata', '--locked', '--format-version', '1'],
+                         check=True, stdout=subprocess.DEVNULL)
       - name: Validate native build
-        shell: bash
+        shell: python
         run: |
-          cargo test --locked
-          cargo check --locked --no-default-features
-          cargo build --release --locked
+          import subprocess
+          for command in (
+              ['cargo', 'test', '--locked'],
+              ['cargo', 'check', '--locked', '--no-default-features'],
+              ['cargo', 'build', '--release', '--locked'],
+          ):
+              print('+', ' '.join(command), flush=True)
+              subprocess.run(command, check=True)
       - name: Build Linux OBS plugin
         if: runner.os == 'Linux'
         run: |
@@ -125,12 +178,37 @@ jobs:
           retention-days: 14
 
   publish-assets:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: native
+    if: needs.native.result == 'success'
+    needs: [source, native]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
+      RELEASE_COMMIT: ${{ needs.source.outputs.source_sha }}
+      RELEASE_TAG_OBJECT: ${{ needs.source.outputs.tag_object }}
     steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.source_sha }}
+          persist-credentials: false
+      - name: Verify the public tag has not changed
+        shell: python
+        run: |
+          import os, subprocess
+          reference = 'refs/tags/' + os.environ['RELEASE_TAG']
+          output = subprocess.check_output(
+              ['git', 'ls-remote', '--tags', 'origin', reference, reference + '^{}'], text=True)
+          references = {}
+          for line in output.splitlines():
+              sha, name = line.split()
+              references[name] = sha
+          if references.get(reference) != os.environ['RELEASE_TAG_OBJECT']:
+              raise SystemExit('Public release tag changed after source validation')
+          commit = references.get(reference + '^{}', references.get(reference))
+          if commit != os.environ['RELEASE_COMMIT']:
+              raise SystemExit('Public release tag no longer identifies the tested source')
+          print('Verified release tag still identifies', commit)
       - uses: actions/download-artifact@v8.0.2
         with:
           pattern: bilibilive-*
@@ -138,6 +216,8 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v3.0.4
         with:
+          tag_name: ${{ needs.source.outputs.release_tag }}
+          target_commitish: ${{ needs.source.outputs.source_sha }}
           files: dist/*
           fail_on_unmatched_files: true
           generate_release_notes: true
