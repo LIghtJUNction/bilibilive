@@ -26,11 +26,30 @@ distinguish the state from OBS module loading.
 
 The subsequent lifecycle hook uses the integrated App's update-exit signal for
 HTTP/MCP-triggered restarts and stops unstarted UI requests during shutdown.
-That hook, the final plugin-status freshness guard and main's startup-hook /
-argument-parsing integration require the merged runtime gate. The earlier 21
-tests are not attributed to these later changes. The new page also requires
-its own native window review; the historical screenshots below retain their
-original snapshot attribution.
+The earlier 21 tests are not attributed to these later changes. The merged
+runtime gate below covers the final lifecycle, plugin-status freshness and
+main argument-parsing changes. The new page still needs its own native window
+review; the historical screenshots below retain their original snapshot
+attribution.
+
+## Integrated update and component gate
+
+Commit `535d6f36a440d5e34d6747f8f88405cfc87b5fe5` passed
+`cargo test --locked --all-targets` with the default GUI feature in the Linux
+sandbox: 100 library tests, 3 CLI tests and 13 OBS component installation
+fixtures, for 116 tests in total. The library tests include 22 GUI controller
+cases. The actual zgpui native C/OpenGL backend linked against Debian
+development and runtime libraries; no window was opened for this test gate.
+The [integration receipt](evidence/update-integration-2026-11-21.json) records
+the exact source commit, lock and log hashes.
+
+These tests cover the shared update lifecycle, terminal zuse receipts,
+retrying a successfully launched apply after a lost reply, acknowledgement
+after MCP output, and a contended diagnostics lock during shutdown. OBS
+installation tests use private local fixtures. This gate does not establish
+Windows/macOS installer upgrades, corresponding OBS loading, actual account
+permissions, broadcasts or two-party PK media; those require their own native
+or online receipts.
 
 ## Final native publication gate
 

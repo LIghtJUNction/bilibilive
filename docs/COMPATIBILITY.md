@@ -24,9 +24,9 @@ application-window and OBS-module runtime acceptance need their own receipts.
 | Capability | Current behavior | Verification boundary |
 |---|---|---|
 | Startup version notice | Once per ordinary GUI launch when `update_check` is enabled; `--noupdate`, demo and read-only startup skip it | Controller fixtures cover each gate and prevent repeated checks |
-| Installer update | Explicit check, staged download, progress, then explicit apply/restart for a recognized Velopack installation | Package identity and digest verification are required before applying; installed Windows/macOS upgrade behavior needs platform acceptance |
+| Managed update | Explicit check, staged download, progress, then explicit apply/restart for a recognized Velopack installation, including a complete Velopack Portable.zip | Package identity and digest verification are required before applying; Windows/macOS upgrade behavior needs platform acceptance |
 | Package-manager update | Cargo and AUR retain ownership; the UI shows the corresponding manual command | The application never invokes system package-manager elevation |
-| Portable update | Release location and installation-channel guidance are displayed | An unrecognized or portable binary is not overwritten in place |
+| Bare executable/archive update | Release location and installation-channel guidance are displayed | An executable without recognized update metadata and helper is not overwritten in place |
 | OBS component installation | Bounded local installation of a matching, verified bundle; replacement of existing files is opt-in | File presence is reported independently from OBS loading; OBS is restarted manually |
 | Native plugin packaging | Platform-native OBS module plus its matching release bundle | Each asset's build and load evidence must identify that platform and architecture |
 | Tray/account controls | Tray restores, starts/stops, displays the current account and quits; Accounts page selects accounts | The audited upstream account switch belongs to its menu bar, not its tray |

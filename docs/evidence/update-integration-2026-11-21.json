@@ -1,0 +1,29 @@
+{
+  "source_commit": "535d6f36a440d5e34d6747f8f88405cfc87b5fe5",
+  "command": [
+    "cargo",
+    "test",
+    "--locked",
+    "--all-targets"
+  ],
+  "exit_code": 0,
+  "checked_at_utc": "2026-11-21T16:52:50.204215+00:00",
+  "default_features": [
+    "gui"
+  ],
+  "native_gui_backend": "zgpui native OpenGL linked to real Debian development/runtime libraries; no window opened",
+  "log_sha256": "885aedd986d78794598f644f1a3a2594cf4715969a92074017d81fa020de3d48",
+  "cargo_lock_sha256": "429f8c844a04a2912af2b77440a75c1d31ff6015140fe6cea2622115ed849c03",
+  "test_results": [
+    "test result: ok. 100 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s",
+    "test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s",
+    "test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s"
+  ],
+  "scope": "Linux sandbox integrated application, native parser, local socket/filesystem fixtures; no real broadcast or external updater apply",
+  "test_count": 116,
+  "platform_runtime_claims": {
+    "linux_native_link": true,
+    "window_opened": false,
+    "windows_macos_update_apply": false
+  }
+}
