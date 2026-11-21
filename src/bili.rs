@@ -1146,6 +1146,11 @@ impl BiliClient {
 
     fn start_live(&self, args: &Value) -> BiliResult<Value> {
         self.authenticated()?;
+        if let Some(expected) = args.get("expected_uid") {
+            if positive_id(expected, "expected_uid")? != self.uid()? {
+                return Err("Account changed during face verification; start again with the selected account".into());
+            }
+        }
         let room_id = self.room_id(args)?;
         let area = if let Some(value) = args.get("area_id") {
             positive_id(value, "area_id")?
@@ -1205,6 +1210,7 @@ impl BiliClient {
             let mut start_args = args.clone();
             start_args["room_id"] = json!(room_id);
             start_args["area_id"] = json!(area);
+            start_args["expected_uid"] = json!(self.uid()?);
             verification["room_id"] = json!(room_id);
             verification["area_id"] = json!(area);
             verification["message"] = json!(message);
@@ -2815,6 +2821,7 @@ mod tests {
                         Err(error) => panic!("{error}"),
                     }
                 };
+                socket.set_nonblocking(false).unwrap();
                 socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 let mut request = Vec::new();
                 let mut buf = [0u8; 1024];
@@ -3044,7 +3051,7 @@ mod tests {
             assert_eq!(verification["room_id"], "42");
             assert_eq!(verification["area_id"], "371");
             assert_eq!(verification["message"], message);
-            assert_eq!(verification["start_args"], json!({"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer"}));
+            assert_eq!(verification["start_args"], json!({"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer","expected_uid":"123"}));
             crate::schema::validate("live.start", &verification["start_args"]).unwrap();
             assert!(result.get("key").is_none());
             assert!(!crate::app::is_success(&result));

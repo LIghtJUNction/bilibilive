@@ -4870,7 +4870,14 @@ impl Desktop {
         if let Some(qr) = &self.verification_qr {
             draw_qr(canvas, qr, x + 29., 249., 233.);
         } else {
-            canvas.text("正在准备验证二维码…", x + 29., 285., 14, false, MUTED);
+            canvas.text(
+                if self.verification_created.is_some() {
+                    "正在准备验证二维码…"
+                } else {
+                    "本次验证已结束，请取消后重新开播。"
+                },
+                x + 29., 285., 14, false, MUTED,
+            );
         }
         let text_x = x + 294.;
         canvas.text("1  使用哔哩哔哩手机客户端扫码", text_x, 262., 14, true, INK);
@@ -5546,7 +5553,7 @@ mod tests {
         json!({"status":"verification_required","room_id":"42","verification":{
             "type":kind,"url":"https://www.bilibili.com/verify","token":"fixture-token",
             "room_id":"42","area_id":"371","message":"original platform challenge","reported":true,
-            "start_args":{"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer"}
+            "start_args":{"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer","expected_uid":"123"}
         }})
     }
 

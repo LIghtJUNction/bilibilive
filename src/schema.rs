@@ -31,6 +31,8 @@ pub fn operations() -> Vec<Spec> {
     let boolean = json!({"type":"boolean"});
     let object = json!({"type":"object"});
     let stream = json!({"room_id":id,"area_id":id,"protocol":{"type":"string","enum":["rtmp","srt","srt-only"]},"strategy":{"type":"string","enum":["fallback","prefer","only","strict"]}});
+    let mut start = stream.clone();
+    start["expected_uid"] = id.clone();
     let mut result = vec![
         spec(
             "doctor",
@@ -219,7 +221,7 @@ pub fn operations() -> Vec<Spec> {
             "live.start",
             "Start the room; prepare and report any required verification before returning its URL",
             false,
-            stream.clone(),
+            start,
             &[],
         ),
         spec(

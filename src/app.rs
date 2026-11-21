@@ -788,6 +788,21 @@ impl App {
             }
             "live.status" => self.client()?.call("room.get", args),
             "live.start" | "live.stream" => {
+                // The caller may have completed a challenge before another
+                // frontend selected a different account. Check under the same
+                // account lease as initialization, delay and the start request.
+                if method == "live.start" {
+                    if let Some(expected) = args.get("expected_uid") {
+                        let expected = expected.as_str().map(str::to_owned)
+                            .or_else(|| expected.as_u64().map(|uid| uid.to_string()))
+                            .filter(|uid| uid.parse::<u64>().is_ok_and(|uid| uid > 0))
+                            .ok_or("expected_uid must be a positive integer")?;
+                        let context = self.credentials()?;
+                        if CookieJar::parse(&context.cookie)?.uid()? != expected {
+                            return Err("Account changed during face verification; start again with the selected account".into());
+                        }
+                    }
+                }
                 let cfg = self.config()?;
                 let fields = args.as_object_mut().ok_or("Arguments must be an object")?;
                 fields.entry("protocol").or_insert(json!(cfg.protocol));
@@ -1666,6 +1681,21 @@ mod account_lease_tests {
     }
     fn cookie(secret: &str) -> String {
         format!("DedeUserID=111; SESSDATA={secret}; bili_jct=fixture-csrf; buvid3=fixture-device")
+    }
+
+    #[test]
+    fn verified_retry_rejects_an_account_switch_before_session_or_broadcast_requests() {
+        let mut fixture = Fixture::new();
+        let app = fixture.app();
+        app.set_cookie_override(cookie("original-fixture")).unwrap();
+        let retry = json!({"room_id":"11","area_id":"371","expected_uid":"111"});
+        app.call("account.use", json!({"name":"beta"})).unwrap();
+        // The new account deliberately lacks device cookies. The UID check
+        // must fail before even attempting ticket or device initialization.
+        app.set_cookie_override("DedeUserID=222; SESSDATA=other-fixture; bili_jct=other-csrf".into()).unwrap();
+        let error = app.call("live.start", retry).unwrap_err();
+        assert!(error.contains("Account changed during face verification"));
+        assert!(!error.contains("other-fixture"));
     }
 
     #[test]
