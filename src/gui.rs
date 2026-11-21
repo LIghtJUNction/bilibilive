@@ -1247,7 +1247,7 @@ impl Desktop {
                                     "验证已过期或未通过。请取消后重新开播。".into();
                                 self.verification_created = None;
                                 self.verification_qr = None;
-                            } else {
+                            } else if self.verification_created.is_some() {
                                 self.verification_message = "等待手机上的验证完成。".into();
                             }
                         }
@@ -1729,6 +1729,17 @@ impl Desktop {
             self.verification_created.is_some(),
             self.pending,
         );
+        // Ending the local wait must not depend on an in-flight request or the
+        // next polling interval. Keep the context for a final manual check.
+        if !self.verification.is_null()
+            && self
+                .verification_created
+                .is_some_and(|time| time.elapsed() > Duration::from_secs(180))
+        {
+            self.verification_created = None;
+            self.verification_qr = None;
+            self.verification_message = "验证等待已结束。请手动检查，或取消后重新开播。".into();
+        }
         if !self.startup_protocol_handled && self.config_loaded && self.pending == 0 {
             self.startup_protocol_handled = true;
             if !self.demo
@@ -1811,25 +1822,18 @@ impl Desktop {
             }
         }
         if !self.verification.is_null()
+            && self.verification_created.is_some()
             && self.verification_poll.elapsed() >= Duration::from_secs(3)
             && self.pending == 0
         {
-            if self
-                .verification_created
-                .is_some_and(|time| time.elapsed() <= Duration::from_secs(180))
-            {
-                self.verification_poll = Instant::now();
-                let kind = self
-                    .verification
-                    .get("type")
-                    .and_then(Value::as_u64)
-                    .unwrap_or(60043);
-                if kind == 60024 || self.verification.get("token").is_some() {
-                    self.poll_verification();
-                }
-            } else if self.verification_created.is_some() {
-                self.verification_created = None;
-                self.verification_message = "验证等待已结束。请手动检查，或取消后重新开播。".into();
+            self.verification_poll = Instant::now();
+            let kind = self
+                .verification
+                .get("type")
+                .and_then(Value::as_u64)
+                .unwrap_or(60043);
+            if kind == 60024 || self.verification.get("token").is_some() {
+                self.poll_verification();
             }
         }
         if self.last_refresh.elapsed() >= Duration::from_secs(30)
@@ -4914,7 +4918,7 @@ impl Desktop {
             Rect::new(x + 174., 551., 116., 39.),
             "复制验证链接",
             ButtonStyle::Secondary,
-            !url.is_empty(),
+            !url.is_empty() && self.verification_created.is_some(),
         ) {
             self.copy = Some(url);
         }
@@ -5585,6 +5589,70 @@ mod tests {
             assert_eq!(poll.args["type"], kind);
             assert_eq!(poll.args["token"], "fixture-token");
         }
+    }
+
+    #[test]
+    fn face_wait_timeout_clears_qr_even_with_a_pending_request_and_recent_poll() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        component_reply(
+            &mut desktop,
+            &responses,
+            "live.start",
+            ready_verification(60043),
+        );
+        let context = desktop.verification.clone();
+        desktop.verification_created = Some(Instant::now() - Duration::from_secs(181));
+        desktop.verification_poll = Instant::now();
+        desktop.pending = 1;
+
+        assert!(desktop.tick());
+        assert!(desktop.verification_created.is_none());
+        assert!(desktop.verification_qr.is_none());
+        assert_eq!(desktop.verification, context);
+        assert_eq!(desktop.pending, 1);
+        assert!(desktop.verification_message.contains("验证等待已结束"));
+        assert!(requests.try_recv().is_err());
+
+        desktop.pending = 0;
+        desktop.verification_poll = Instant::now() - Duration::from_secs(4);
+        desktop.tick();
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn late_pending_face_reply_does_not_restore_an_ended_local_wait() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        component_reply(
+            &mut desktop,
+            &responses,
+            "live.start",
+            ready_verification(60043),
+        );
+        let context = desktop.verification.clone();
+        desktop.poll_verification();
+        assert_eq!(requests.try_recv().unwrap().method, "face.poll");
+        desktop.verification_created = Some(Instant::now() - Duration::from_secs(181));
+        desktop.tick();
+        let ended_message = desktop.verification_message.clone();
+
+        component_reply(
+            &mut desktop,
+            &responses,
+            "face.poll",
+            json!({"status":"pending","verified":false,"data":{"status":0}}),
+        );
+        assert_eq!(desktop.pending, 0);
+        assert!(desktop.verification_created.is_none());
+        assert!(desktop.verification_qr.is_none());
+        assert_eq!(desktop.verification_message, ended_message);
+        assert_eq!(desktop.verification, context);
+        assert!(requests.try_recv().is_err());
+
+        // A deliberate final check can still obtain the platform's result.
+        desktop.poll_verification();
+        let request = requests.try_recv().unwrap();
+        assert_eq!(request.method, "face.poll");
+        assert_eq!(request.args["token"], context["token"]);
     }
 
     #[test]
