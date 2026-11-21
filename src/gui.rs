@@ -742,6 +742,9 @@ impl Desktop {
             self.notice("请等待当前操作完成。", false);
             return false;
         }
+        if method == "live.start" {
+            self.clear_verification();
+        }
         match self.tx.send(Request {
             method: method.into(),
             args,
@@ -859,6 +862,9 @@ impl Desktop {
                     }
                     if method == "auth.qr.poll" {
                         self.qr_message = error.clone();
+                    }
+                    if method == "face.poll" && !self.verification.is_null() {
+                        self.verification_message = format!("验证状态查询失败：{error}");
                     }
                     if method == "danmaku.read" {
                         self.events_connected = false;
@@ -1117,21 +1123,15 @@ impl Desktop {
                                 self.verification =
                                     data.get("verification").cloned().unwrap_or(data);
                                 self.verification_created = Some(Instant::now());
-                                self.verification_message = "请使用手机扫码完成平台验证。".into();
+                                self.verification_poll = Instant::now();
+                                self.verification_message =
+                                    "请使用哔哩哔哩手机客户端扫码，完成本次账号验证。".into();
                                 let url = text(&self.verification, &["url"]);
                                 self.verification_qr = if url.is_empty() {
                                     None
                                 } else {
                                     QrCode::encode_text(&url, QrCodeEcc::Medium).ok()
                                 };
-                                if let Some(voucher) = self
-                                    .verification
-                                    .get("v_voucher")
-                                    .and_then(Value::as_str)
-                                    .map(str::to_owned)
-                                {
-                                    self.submit("face.register", json!({"v_voucher": voucher}));
-                                }
                                 self.notice("平台要求验证，请按屏幕提示完成。", false);
                             } else {
                                 self.stream = data;
@@ -1161,39 +1161,29 @@ impl Desktop {
                                 }
                             }
                         }
-                        "face.register" => {
-                            if !self.verification.is_null() {
-                                self.verification = data;
-                                let url = text(&self.verification, &["url"]);
-                                self.verification_qr =
-                                    QrCode::encode_text(&url, QrCodeEcc::Medium).ok();
-                                self.verification_poll = Instant::now();
-                            }
-                        }
                         "face.poll" => {
                             if self.verification.is_null() {
                                 continue;
                             } else if value.get("verified").and_then(Value::as_bool) == Some(true) {
-                                let kind = self
+                                let start_args = self
                                     .verification
-                                    .get("type")
-                                    .cloned()
-                                    .unwrap_or(json!(60043));
-                                if let Ok(area) = self.area_id.parse::<u64>() {
-                                    if area > 0 {
-                                        self.submit("face.report", json!({"type": kind, "message": "verified", "area_id": area}));
-                                    }
+                                    .get("start_args")
+                                    .filter(|args| args.is_object())
+                                    .cloned();
+                                self.clear_verification();
+                                if let Some(args) = start_args {
+                                    self.notice("平台验证已完成，正在继续原来的开播请求。", true);
+                                    self.submit("live.start", args);
+                                } else {
+                                    self.notice("平台验证已完成，请点击开始直播。", true);
                                 }
-                                self.verification = Value::Null;
-                                self.verification_qr = None;
-                                self.notice("平台验证已完成，正在继续开播。", true);
-                                self.start_live();
                             } else if value.get("status").and_then(Value::as_str)
                                 == Some("expired_or_failed")
                             {
                                 self.verification_message =
                                     "验证已过期或未通过。请取消后重新开播。".into();
                                 self.verification_created = None;
+                                self.verification_qr = None;
                             } else {
                                 self.verification_message = "等待手机上的验证完成。".into();
                             }
@@ -1419,8 +1409,7 @@ impl Desktop {
         self.events_connected = false;
         self.audit.clear();
         self.audit_until = None;
-        self.verification = Value::Null;
-        self.verification_qr = None;
+        self.clear_verification();
     }
 
     fn load_appearance(&mut self) {
@@ -4764,6 +4753,13 @@ impl Desktop {
         self.notice("收到主播邀请。可在 PK 与连线页面接受或拒绝。", true);
     }
 
+    fn clear_verification(&mut self) {
+        self.verification = Value::Null;
+        self.verification_qr = None;
+        self.verification_created = None;
+        self.verification_message.clear();
+    }
+
     fn poll_verification(&mut self) {
         let mut args =
             json!({"type": self.verification.get("type").cloned().unwrap_or(json!(60043))});
@@ -4800,7 +4796,7 @@ impl Desktop {
             canvas.text("正在准备验证二维码…", x + 29., 285., 14, false, MUTED);
         }
         let text_x = x + 294.;
-        canvas.text("1  使用手机扫描二维码", text_x, 262., 14, true, INK);
+        canvas.text("1  使用哔哩哔哩手机客户端扫码", text_x, 262., 14, true, INK);
         canvas.text("2  在哔哩哔哩页面完成验证", text_x, 307., 14, true, INK);
         canvas.text("3  验证通过后将自动继续开播", text_x, 352., 14, true, INK);
         canvas.ellipsis(
@@ -4842,9 +4838,7 @@ impl Desktop {
             ButtonStyle::Quiet,
             true,
         ) {
-            self.verification = Value::Null;
-            self.verification_qr = None;
-            self.verification_created = None;
+            self.clear_verification();
             self.notice("已取消等待验证。", true);
         }
     }
@@ -5244,7 +5238,7 @@ fn action_label(method: &str) -> &str {
         "delay.set" => "应用直播延迟",
         "face.register" => "生成平台验证链接",
         "face.poll" => "检查平台验证结果",
-        "face.report" => "提交平台验证结果",
+        "face.report" => "登记平台验证请求",
         "danmaku.send" => "发送直播间弹幕",
         "danmaku.connect" => "接收直播间事件",
         "danmaku.read" => "读取直播间事件",
@@ -5393,6 +5387,84 @@ mod tests {
             })
             .unwrap();
         desktop.receive();
+    }
+
+    fn ready_verification(kind: u64) -> Value {
+        json!({"status":"verification_required","room_id":"42","verification":{
+            "type":kind,"url":"https://www.bilibili.com/verify","token":"fixture-token",
+            "room_id":"42","area_id":"371","message":"original platform challenge","reported":true,
+            "start_args":{"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer"}
+        }})
+    }
+
+    #[test]
+    fn ready_face_challenges_keep_context_without_duplicate_registration_or_report() {
+        for kind in [60024, 60043] {
+            let (mut desktop, requests, responses) = component_fixture(false, false);
+            component_reply(&mut desktop, &responses, "live.start", ready_verification(kind));
+            assert!(desktop.verification_qr.is_some());
+            assert_eq!(desktop.verification["room_id"], "42");
+            assert_eq!(desktop.verification["message"], "original platform challenge");
+            assert!(requests.try_recv().is_err());
+            desktop.poll_verification();
+            let poll = requests.try_recv().unwrap();
+            assert_eq!(poll.method, "face.poll");
+            assert_eq!(poll.args["room_id"], "42");
+            assert_eq!(poll.args["type"], kind);
+            assert_eq!(poll.args["token"], "fixture-token");
+        }
+    }
+
+    #[test]
+    fn verified_face_resumes_the_original_room_area_and_protocol_exactly_once() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        component_reply(&mut desktop, &responses, "live.start", ready_verification(60043));
+        desktop.area_id = "21".into();
+        desktop.protocol = "rtmp".into();
+        desktop.strategy = "fallback".into();
+        component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true,"data":{"status":1}}));
+        let retry = requests.try_recv().unwrap();
+        assert_eq!(retry.method, "live.start");
+        assert_eq!(retry.args, ready_verification(60043)["verification"]["start_args"]);
+        assert!(desktop.verification.is_null());
+        assert!(desktop.verification_created.is_none());
+        component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true}));
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn pending_failed_and_cancelled_face_verification_never_resume_a_broadcast() {
+        for status in ["pending", "expired_or_failed"] {
+            let (mut desktop, requests, responses) = component_fixture(false, false);
+            component_reply(&mut desktop, &responses, "live.start", ready_verification(60043));
+            component_reply(&mut desktop, &responses, "face.poll", json!({"status":status,"verified":false}));
+            assert!(requests.try_recv().is_err());
+            if status == "expired_or_failed" {
+                assert!(desktop.verification_created.is_none());
+                assert!(desktop.verification_qr.is_none());
+            }
+            desktop.clear_verification();
+            component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true}));
+            assert!(requests.try_recv().is_err());
+        }
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        component_reply(&mut desktop, &responses, "live.start", ready_verification(60024));
+        responses.send(Response { method:"face.poll".into(),result:Err("fixture transport failed".into()) }).unwrap();
+        desktop.receive();
+        assert!(desktop.verification_message.contains("fixture transport failed"));
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_new_start_clears_the_previous_challenge_before_its_late_poll_response() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        component_reply(&mut desktop, &responses, "live.start", ready_verification(60024));
+        desktop.area_id = "21".into();
+        desktop.start_live();
+        assert_eq!(requests.try_recv().unwrap().args["area_id"], 21);
+        component_reply(&mut desktop, &responses, "face.poll", json!({"status":"verified","verified":true}));
+        assert!(desktop.verification.is_null());
+        assert!(requests.try_recv().is_err());
     }
 
     #[test]

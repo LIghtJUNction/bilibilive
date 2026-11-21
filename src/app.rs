@@ -322,6 +322,28 @@ impl App {
         let context = self.credentials()?;
         self.client_for_config(&context.cookie, &context.config)
     }
+
+    fn initialized_broadcast_client(&self) -> Result<BiliClient, String> {
+        let context = self.credentials()?;
+        let jar = CookieJar::parse(&context.cookie)?;
+        let client = self.client_for_config(&context.cookie, &context.config)?;
+        if ["buvid3", "buvid4"].iter().all(|name| {
+            jar.get(name).is_some_and(|value| !value.is_empty())
+        }) {
+            return Ok(client);
+        }
+        // QR login does not always issue device cookies. Persist the official
+        // initialization before starting a challenge, so later face.poll calls
+        // do not each construct a client with a different fallback device ID.
+        let mut refreshed = client.call("auth.refresh", &json!({}))
+            .map_err(|error| format!("Could not initialize the Bilibili broadcast session: {error}"))?;
+        let cookie = refreshed.as_object_mut()
+            .and_then(|value| value.remove("_private_cookie"))
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .ok_or("Bilibili session initialization omitted its credential update")?;
+        self.persist_refresh(&context, &cookie)?;
+        self.client_for_config(&cookie, &context.config)
+    }
     fn persist_refresh(&self, context: &CredentialContext, cookie: &str) -> Result<(), String> {
         let original = CookieJar::parse(&context.cookie)?;
         let refreshed = CookieJar::parse(cookie)?;
@@ -773,7 +795,11 @@ impl App {
                 if method == "live.start" && cfg.default_area > 0 {
                     fields.entry("area_id").or_insert(json!(cfg.default_area));
                 }
-                let client = self.client()?;
+                let client = if method == "live.start" {
+                    self.initialized_broadcast_client()?
+                } else {
+                    self.client()?
+                };
                 if method == "live.start" && cfg.delay != 0 {
                     client.call("delay.set", &json!({"seconds":cfg.delay}))?;
                 }
@@ -982,21 +1008,9 @@ impl App {
         {
             return Ok(json!({"connected":true}));
         }
+        let client = Arc::new(self.initialized_broadcast_client()?);
         let context = self.credentials()?;
-        let mut cookie = context.cookie.clone();
-        let client = Arc::new(self.client_for_config(&cookie, &context.config)?);
-        if CookieJar::parse(&cookie)?.get("buvid3").is_none() {
-            let mut refresh = client.call("auth.refresh", &json!({}))?;
-            if let Some(updated) = refresh
-                .as_object_mut()
-                .and_then(|v| v.remove("_private_cookie"))
-                .and_then(|v| v.as_str().map(str::to_owned))
-            {
-                cookie = updated;
-                self.persist_refresh(&context, &cookie)?;
-            }
-        }
-        let jar = CookieJar::parse(&cookie)?;
+        let jar = CookieJar::parse(&context.cookie)?;
         let uid = jar.uid()?.to_owned();
         let buvid = jar.get("buvid3").unwrap_or("").to_owned();
         let connection = client.danmaku_connection()?;

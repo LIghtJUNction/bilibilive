@@ -795,7 +795,9 @@ impl BiliClient {
                 &created.saturating_add(ttl).to_string(),
             )?;
         }
-        if jar.get("buvid3").is_none() || jar.get("buvid4").is_none() {
+        if ["buvid3", "buvid4"].iter().any(|name| {
+            jar.get(name).is_none_or(|value| value.is_empty())
+        }) {
             let data = self.data(
                 self.send_raw(self.prepare(
                     "GET",
@@ -1157,7 +1159,7 @@ impl BiliClient {
         protocol_policy(args)?;
         let body = self.signed_live_body(
             fields([
-                ("area_v2", area),
+                ("area_v2", area.clone()),
                 ("room_id", room_id.clone()),
                 ("type", "2".into()),
             ]),
@@ -1173,18 +1175,44 @@ impl BiliClient {
             true,
             false,
         )?)?;
-        match raw.get("code").and_then(Value::as_i64) {
-            Some(60024) => {
-                return Ok(
-                    json!({"status":"verification_required", "room_id":room_id, "verification":{"type":60024,"url":raw.pointer("/data/qr"),"message":raw.get("message")}}),
-                );
-            }
-            Some(60043) => {
-                return Ok(
-                    json!({"status":"verification_required", "room_id":room_id, "verification":{"type":60043,"v_voucher":raw.pointer("/data/risk_extra/v_voucher"),"message":raw.get("message")}}),
-                );
-            }
-            _ => (),
+        if let Some(kind @ (60024 | 60043)) = raw.get("code").and_then(Value::as_i64) {
+            let message = required_text(&raw, "message")?;
+            let mut verification = if kind == 60024 {
+                let url = raw
+                    .pointer("/data/qr")
+                    .and_then(Value::as_str)
+                    .filter(|url| !url.is_empty())
+                    .ok_or("Bilibili omitted the face verification URL")?;
+                json!({"type":kind,"url":url})
+            } else {
+                let voucher = raw
+                    .pointer("/data/risk_extra/v_voucher")
+                    .and_then(Value::as_str)
+                    .filter(|voucher| !voucher.is_empty())
+                    .ok_or("Bilibili omitted the face verification voucher")?;
+                // V2 must register its voucher before the challenge is reported
+                // and displayed, matching StartLive's popup_face_widget flow.
+                self.face_register(&json!({"v_voucher":voucher}))
+                    .map_err(|error| format!("Could not prepare Bilibili face verification: {error}"))?
+            };
+            // Reporting initializes the platform's verification flow. Reporting
+            // only after a successful scan leaves the phone on a system error
+            // (StartLive issue #21). Preserve the original code and message.
+            self.face_report(&json!({
+                "type":kind,"message":message,"room_id":room_id,"area_id":area
+            }))
+            .map_err(|error| format!("Could not initialize Bilibili face verification: {error}"))?;
+            let mut start_args = args.clone();
+            start_args["room_id"] = json!(room_id);
+            start_args["area_id"] = json!(area);
+            verification["room_id"] = json!(room_id);
+            verification["area_id"] = json!(area);
+            verification["message"] = json!(message);
+            verification["reported"] = json!(true);
+            verification["start_args"] = start_args;
+            return Ok(json!({
+                "status":"verification_required","room_id":room_id,"verification":verification
+            }));
         }
         let data = self.data(raw)?;
         let mut result = select_stream(&data, args).map_err(|error| {
@@ -2766,6 +2794,74 @@ mod tests {
         (client, server)
     }
 
+    fn verification_fixture(bodies: Vec<Value>) -> (BiliClient, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::Instant;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for body in bodies {
+                let deadline = Instant::now() + Duration::from_secs(5);
+                let mut socket = loop {
+                    match listener.accept() {
+                        Ok((socket, _)) => break socket,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                            assert!(Instant::now() < deadline, "missing verification request");
+                            std::thread::sleep(Duration::from_millis(1));
+                        }
+                        Err(error) => panic!("{error}"),
+                    }
+                };
+                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut request = Vec::new();
+                let mut buf = [0u8; 1024];
+                loop {
+                    let count = socket.read(&mut buf).unwrap();
+                    assert!(count > 0);
+                    request.extend_from_slice(&buf[..count]);
+                    if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let head = String::from_utf8_lossy(&request[..end]);
+                        let length = head.lines().find_map(|line| {
+                            line.to_ascii_lowercase().strip_prefix("content-length:")
+                                .map(|value| value.trim().parse::<usize>().unwrap())
+                        }).unwrap_or(0);
+                        if request.len() >= end + 4 + length {
+                            break;
+                        }
+                    }
+                    assert!(request.len() < 16 * 1024);
+                }
+                let body = body.to_string();
+                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                requests.push(String::from_utf8(request).unwrap());
+            }
+            requests
+        });
+        let mut client = BiliClient::new(
+            "SESSDATA=fixture-secret; bili_jct=fixture-csrf; DedeUserID=123; buvid3=fixture-device",
+        ).unwrap();
+        client.origins.live = format!("http://{address}");
+        client.origins.api = format!("http://{address}");
+        (client, server)
+    }
+
+    fn verification_content() -> String {
+        let payload = br#"{"type":"realname","token":"fixture-token"}"#;
+        let digest = Sha256::digest(b"abc1700000000");
+        let bytes: Vec<_> = payload.iter().enumerate()
+            .map(|(index, byte)| byte ^ digest[index % 16]).collect();
+        BASE64.encode(format!("1700000000|salt|9|{}", BASE64.encode(bytes)))
+    }
+
+    fn request_form(request: &str) -> Fields {
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        reqwest::Url::parse(&format!("http://fixture/?{body}")).unwrap()
+            .query_pairs().into_owned().collect()
+    }
+
     #[test]
     fn refreshed_snapshot_controls_real_live_signatures_ack_and_headers() {
         use crate::protocol_profile::ProtocolProfiles;
@@ -2797,7 +2893,7 @@ mod tests {
         let snapshot = ProtocolProfiles::new(&directory.0).snapshot().unwrap();
         for (operation, include_csrf) in [("live.start", false), ("live.stop", true)] {
             let body = if operation == "live.start" {
-                json!({"code":60024,"data":{"qr":"https://www.bilibili.com/fixture"}})
+                json!({"code":0,"data":{"rtmp":{"addr":"rtmp://fixture/live/","code":"fixture-key"}}})
             } else {
                 json!({"code":0,"data":{}})
             };
@@ -2921,22 +3017,163 @@ mod tests {
         assert!(check_pk_precheck(&json!({"show_type":0,"tips":{}})).is_ok());
     }
     #[test]
-    fn face_challenges_are_explicit_results_not_successful_broadcasts() {
+    fn face_challenges_are_registered_and_reported_before_the_url_is_exposed() {
         for (code, data) in [
             (60024, json!({"qr":"https://www.bilibili.com/verify"})),
-            (60043, json!({"risk_extra":{"v_voucher":"fixture-voucher"}})),
+            (60043, json!({"risk_extra":{"v_voucher":"12345678abcdef"}})),
         ] {
-            let (client, server) =
-                live_fixture(json!({"code":code,"message":"verification required","data":data}));
+            let message = "目标分区需要人脸验证";
+            let mut responses = vec![json!({"code":code,"message":message,"data":data})];
+            if code == 60043 {
+                responses.push(json!({"code":0,"data":{"content":verification_content()}}));
+            }
+            responses.push(json!({"code":0,"data":{}}));
+            responses.push(if code == 60024 {
+                json!({"code":0,"data":{"is_identified":true}})
+            } else {
+                json!({"code":0,"data":{"status":1}})
+            });
+            let (client, server) = verification_fixture(responses);
             let result = client
-                .call("live.start", &json!({"room_id":42,"area_id":371}))
+                .call("live.start", &json!({"room_id":42,"area_id":371,"protocol":"srt","strategy":"prefer"}))
                 .unwrap();
             assert_eq!(result["status"], "verification_required");
-            assert_eq!(result["verification"]["type"], code);
+            let verification = &result["verification"];
+            assert_eq!(verification["type"], code);
+            assert_eq!(verification["reported"], true);
+            assert_eq!(verification["room_id"], "42");
+            assert_eq!(verification["area_id"], "371");
+            assert_eq!(verification["message"], message);
+            assert_eq!(verification["start_args"], json!({"room_id":"42","area_id":"371","protocol":"srt","strategy":"prefer"}));
+            crate::schema::validate("live.start", &verification["start_args"]).unwrap();
             assert!(result.get("key").is_none());
-            let request = server.join().unwrap();
-            assert!(request.starts_with("POST /room/v1/Room/startLive "));
-            assert!(request.contains("csrf=fixture-csrf"));
+            assert!(!crate::app::is_success(&result));
+            let poll = client.call("face.poll", &json!({
+                "type":code,"room_id":verification["room_id"],"token":verification["token"]
+            })).unwrap();
+            assert_eq!(poll["verified"], true);
+            let requests = server.join().unwrap();
+            assert!(requests[0].starts_with("POST /room/v1/Room/startLive "));
+            let report_index = if code == 60043 { 2 } else { 1 };
+            let report = &requests[report_index];
+            assert!(report.starts_with("POST /xlive/app-blink/v1/preLive/ReportFaceRecognition "));
+            let mut report_form = request_form(report);
+            for (key, value) in [
+                ("area_v2_id", "371"), ("room_id", "42"), ("scene", "startLive"),
+                ("face_auth_message", message), ("csrf", "fixture-csrf"), ("csrf_token", "fixture-csrf")
+            ] {
+                assert_eq!(report_form.remove(key).as_deref(), Some(value));
+            }
+            assert_eq!(report_form.remove("face_auth_code"), Some(code.to_string()));
+            let signature = report_form.remove("sign").unwrap();
+            // Independently verify the upstream signature scope: only public
+            // profile fields are signed; challenge fields and CSRF follow it.
+            let preimage = report_form.iter().map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>().join("&") + "af125a0d5279fd576c1b4418a3e8276d";
+            assert_eq!(signature, format!("{:x}", md5::compute(preimage)));
+            for request in &requests {
+                assert!(request.to_ascii_lowercase().contains("buvid: fixture-device\r\n"));
+                assert!(request.contains("buvid3=fixture-device"));
+            }
+            let poll_request = requests.last().unwrap();
+            let poll_form = request_form(poll_request);
+            if code == 60043 {
+                assert!(requests[1].starts_with("POST /x/gaia-vgate/v2/register "));
+                let register_form = request_form(&requests[1]);
+                assert_eq!(register_form["v_voucher"], "12345678abcdef");
+                assert_eq!(register_form["dm_track"], "[]");
+                assert!(poll_request.starts_with("POST /x/gaia-vgate/v2/validatePreCheck "));
+                assert_eq!(poll_form["token"], verification["token"].as_str().unwrap());
+                assert_ne!(poll_form["token"], "fixture-token");
+                let tracking: Value = serde_json::from_str(&poll_form["dm_track"]).unwrap();
+                assert!(tracking["dm_img_inter"].is_string());
+                let url = verification["url"].as_str().unwrap();
+                assert!(url.starts_with("https://www.bilibili.com/h5/risk-control/realname?t="));
+            } else {
+                assert_eq!(verification["url"], "https://www.bilibili.com/verify");
+                assert!(poll_request.starts_with("POST /xlive/app-blink/v1/preLive/IsUserIdentifiedByFaceAuth "));
+                assert_eq!(poll_form["room_id"], "42");
+                assert_eq!(poll_form["face_auth_code"], "60024");
+            }
+        }
+    }
+
+    #[test]
+    fn failed_challenge_report_is_an_initialization_error_without_a_ready_qr() {
+        let (client, server) = verification_fixture(vec![
+            json!({"code":60024,"message":"verification required","data":{"qr":"https://www.bilibili.com/verify"}}),
+            json!({"code":-400,"message":"fixture report rejected"}),
+        ]);
+        let error = client.call("live.start", &json!({"room_id":42,"area_id":371})).unwrap_err();
+        assert!(error.contains("initialize Bilibili face verification"));
+        assert!(error.contains("-400"));
+        assert_eq!(server.join().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn failed_v2_registration_stops_before_reporting_or_displaying_a_challenge() {
+        let (client, server) = verification_fixture(vec![
+            json!({"code":60043,"message":"verification required","data":{"risk_extra":{"v_voucher":"12345678abcdef"}}}),
+            json!({"code":-400,"message":"fixture voucher expired"}),
+        ]);
+        let error = client.call("live.start", &json!({"room_id":42,"area_id":371})).unwrap_err();
+        assert!(error.contains("prepare Bilibili face verification"));
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[1].starts_with("POST /x/gaia-vgate/v2/register "));
+    }
+
+    #[test]
+    fn face_poll_requires_platform_confirmation_and_preserves_pending_or_failed_state() {
+        for (kind, response, expected) in [
+            (60024, json!({"is_identified":false}), "pending"),
+            (60024, json!({"is_identified":0}), "pending"),
+            (60024, json!({"is_identified":1}), "verified"),
+            (60043, json!({"status":0}), "pending"),
+            (60043, json!({"status":2}), "expired_or_failed"),
+            (60043, json!({"status":3}), "expired_or_failed"),
+        ] {
+            let (client, server) = verification_fixture(vec![json!({"code":0,"data":response})]);
+            let result = client.call("face.poll", &json!({"type":kind,"room_id":42,"token":"fixture-token"})).unwrap();
+            assert_eq!(result["status"], expected);
+            assert_eq!(result["verified"], expected == "verified");
+            assert_eq!(server.join().unwrap().len(), 1);
+        }
+    }
+
+    #[test]
+    fn initialized_device_cookies_survive_new_clients_through_face_verification() {
+        for device_cookies in ["", "; buvid3=; buvid4="] {
+            let (initial, server) = verification_fixture(vec![
+                json!({"code":0,"data":{"b_3":"official-fixture-device","b_4":"official-fixture-four"}}),
+                json!({"code":60024,"message":"verification required","data":{"qr":"https://www.bilibili.com/verify"}}),
+                json!({"code":0,"data":{}}),
+                json!({"code":0,"data":{"is_identified":true}}),
+            ]);
+            *initial.cookies.lock().unwrap() = CookieJar::parse(&format!(
+                "SESSDATA=fixture-secret; bili_jct=fixture-csrf; DedeUserID=123; bili_ticket=fixture-ticket; bili_ticket_expires={}{}",
+                now() + 3600, device_cookies
+            )).unwrap();
+            let mut refreshed = initial.call("auth.refresh", &json!({})).unwrap();
+            let cookie = refreshed.as_object_mut().unwrap().remove("_private_cookie").unwrap();
+            let cookie = cookie.as_str().unwrap();
+            let new_client = || {
+                let mut client = BiliClient::new(cookie).unwrap();
+                client.origins.live = initial.origins.live.clone();
+                client.origins.api = initial.origins.api.clone();
+                client
+            };
+            let start = new_client().call("live.start", &json!({"room_id":42,"area_id":371})).unwrap();
+            assert_eq!(start["status"], "verification_required");
+            assert_eq!(new_client().call("face.poll", &json!({"type":60024,"room_id":42})).unwrap()["verified"], true);
+            let requests = server.join().unwrap();
+            assert!(requests[0].starts_with("GET /x/frontend/finger/spi "));
+            for request in &requests[1..] {
+                assert!(request.to_ascii_lowercase().contains("buvid: official-fixture-device\r\n"));
+                assert!(request.contains("buvid3=official-fixture-device"));
+                assert!(request.contains("buvid4=official-fixture-four"));
+            }
+            assert!(refreshed.get("_private_cookie").is_none());
         }
     }
     #[test]

@@ -217,7 +217,7 @@ pub fn operations() -> Vec<Spec> {
         ),
         spec(
             "live.start",
-            "Start the room; verification requests remain explicit results",
+            "Start the room; prepare and report any required verification before returning its URL",
             false,
             stream.clone(),
             &[],
@@ -259,7 +259,7 @@ pub fn operations() -> Vec<Spec> {
         ),
         spec(
             "face.report",
-            "Report the platform-issued verification result",
+            "Report the original platform-issued challenge before the user completes verification",
             false,
             json!({"type":number,"message":text,"area_id":id,"room_id":id}),
             &["type", "message", "area_id"],
