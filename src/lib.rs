@@ -16,6 +16,7 @@ pub mod media;
 pub mod obs;
 pub mod pk_session;
 pub mod schema;
+pub mod updater;
 pub mod zuse_host;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
