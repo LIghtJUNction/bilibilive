@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "checked_from_utc": "2026-11-21T13:56:22Z",
+  "checked_to_utc": "2026-11-21T13:56:32Z",
+  "git_dependencies": [
+    {
+      "package": "z64",
+      "version": "0.1.2",
+      "repository": "https://github.com/LIghtJUNction/z64.git",
+      "default_head": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd"
+    },
+    {
+      "package": "zcall",
+      "version": "0.4.1",
+      "repository": "https://github.com/LIghtJUNction/zcall.git",
+      "default_head": "8dd30a922a0aedbe821f610649b1ab26078d1882"
+    },
+    {
+      "package": "zclap",
+      "version": "0.1.4",
+      "repository": "https://github.com/LIghtJUNction/zclap.git",
+      "default_head": "4d87f3ae3743e81509d5ac5500909955667c860f"
+    },
+    {
+      "package": "zconv",
+      "version": "0.4.1",
+      "repository": "https://github.com/LIghtJUNction/zconv.git",
+      "default_head": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+    },
+    {
+      "package": "zgpui",
+      "version": "0.1.6",
+      "repository": "https://github.com/LIghtJUNction/zgpui.git",
+      "default_head": "174a8b73087deeac2ecfa036cad8bddba71c612f"
+    },
+    {
+      "package": "zmcpio",
+      "version": "0.5.0",
+      "repository": "https://github.com/LIghtJUNction/zmcpio.git",
+      "default_head": "c114a5ae9f925c64f3b090b8524016cbb90b6cff"
+    },
+    {
+      "package": "zsys",
+      "version": "0.1.1",
+      "repository": "https://github.com/LIghtJUNction/zsys.git",
+      "default_head": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7"
+    },
+    {
+      "package": "zuse-computer",
+      "version": "0.4.0",
+      "repository": "https://github.com/LIghtJUNction/zuse.git",
+      "default_head": "0016f96067d1e4672c62be9d8008d210edcdae2d"
+    }
+  ],
+  "changes": [
+    {
+      "package": "zmcpio",
+      "previous_commit": "d5e7ffb76184e6754bb7b564a217db1e2099e531",
+      "commit": "c114a5ae9f925c64f3b090b8524016cbb90b6cff",
+      "changed_paths": [
+        ".github/workflows/release.yml",
+        "scripts/release.py",
+        "scripts/test_release.py"
+      ],
+      "runtime_manifest_lock_and_published_source_unchanged": true
+    }
+  ]
+}

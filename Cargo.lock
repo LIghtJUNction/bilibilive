@@ -3031,7 +3031,7 @@ checksum = "b268e58e7c693d7c271f93ffc4ba3b380412554231c85bf61ca7af91042a4112"
 [[package]]
 name = "zmcpio"
 version = "0.5.0"
-source = "git+https://github.com/LIghtJUNction/zmcpio.git#d5e7ffb76184e6754bb7b564a217db1e2099e531"
+source = "git+https://github.com/LIghtJUNction/zmcpio.git#c114a5ae9f925c64f3b090b8524016cbb90b6cff"
 dependencies = [
  "zcall",
 ]
