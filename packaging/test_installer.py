@@ -187,6 +187,48 @@ class InstallerTests(unittest.TestCase):
 
 
 class ReleaseSourceTests(unittest.TestCase):
+    def test_publication_rejects_stale_rerun_artifacts_and_old_diagnostics(self):
+        import os
+        import subprocess
+        import sys
+        import textwrap
+        workflow = (Path(__file__).resolve().parent.parent / ".github/workflows/release.yml").read_text()
+        selected = workflow.split("      - name: Verify the four complete asset sets before publication\n", 1)[1]
+        script = textwrap.dedent(selected.split("        run: |\n", 1)[1].split("      - uses:", 1)[0])
+        commit = "a" * 40
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); dist = root / "dist"; dist.mkdir()
+            def write(name, data):
+                (dist / name).write_bytes(data)
+                checksum = hashlib.sha256(data).hexdigest()
+                (dist / (name + ".sha256")).write_text(checksum + "  " + name + "\n", encoding="ascii")
+                return {"name": name, "size": len(data), "sha256": checksum}
+            indexes = []
+            for target in installer.TARGETS:
+                name = f"bilibilive-v1.2.3-{target}-assets.json"
+                record = write(f"private-{target}.fixture", b"private release artifact, never executed")
+                value = {"schema": 1, "version": "1.2.3", "source_commit": commit, "target": target,
+                         "publish": True, "assets": [record]}
+                write(name, json.dumps(value).encode()); indexes.append(name)
+            env = dict(os.environ, RELEASE_TAG="v1.2.3", RELEASE_COMMIT=commit)
+            def validate():
+                return subprocess.run([sys.executable, "-c", script], cwd=root, env=env, capture_output=True)
+            result = validate(); self.assertEqual(result.returncode, 0, result.stderr)
+            (dist / "old-failed-attempt.log").write_text("private diagnostic")
+            result = validate(); self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"Unexpected asset", result.stderr); (dist / "old-failed-attempt.log").unlink()
+            original = (dist / indexes[0]).read_bytes()
+            for changes in ({"source_commit": "b" * 40}, {"publish": False}, {"version": "1.2.2"}):
+                with self.subTest(changes=changes):
+                    value = json.loads(original); value.update(changes); write(indexes[0], json.dumps(value).encode())
+                    result = validate(); self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(b"different source or validation run", result.stderr)
+            write(indexes[0], original)
+            data = json.loads(original)["assets"][0]
+            write(data["name"], b"tampered artifact with a fresh sidecar")
+            result = validate(); self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"differs from the successful native build", result.stderr)
+
     def test_preview_freezes_a_commit_and_formal_publication_requires_an_existing_matching_tag(self):
         import os
         import subprocess
