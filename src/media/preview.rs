@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
     io::{Read, Write},
-    process::{Child, ChildStdin, Command, Stdio},
+    process::{Child, ChildStdin, Stdio},
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -204,7 +204,7 @@ impl Player {
         if state.cancelled.load(Ordering::Relaxed) {
             return Err("Local preview cancelled".into());
         }
-        let mut command = Command::new("ffplay");
+        let mut command = crate::bundle::command("ffplay")?;
         command.args([
             "-hide_banner",
             "-loglevel",
@@ -430,7 +430,7 @@ mod tests {
     }
     #[test]
     fn local_video_player_closes_without_a_rtc_connection() {
-        if Command::new("ffplay")
+        if std::process::Command::new("ffplay")
             .arg("-version")
             .stdout(Stdio::null())
             .stderr(Stdio::null())

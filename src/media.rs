@@ -8,7 +8,7 @@ pub mod wire;
 use serde_json::{Value, json};
 use std::{
     io::Write,
-    process::{Child, Command, Stdio},
+    process::{Child, Stdio},
     sync::{
         Arc, Mutex,
         mpsc::{self, Sender},
@@ -368,7 +368,7 @@ impl Worker {
             .clone()
             .ok_or("Subscribe to a peer before opening a preview")?;
         self.close_preview();
-        let mut command = Command::new("ffplay");
+        let mut command = crate::bundle::command("ffplay")?;
         command.args([
             "-hide_banner",
             "-loglevel",

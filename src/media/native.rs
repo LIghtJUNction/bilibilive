@@ -84,6 +84,8 @@ pub struct Functions {
 }
 pub struct Native {
     _library: Library,
+    _search: crate::bundle::LibrarySearch,
+    source: serde_json::Value,
     pub functions: Functions,
 }
 fn cstring(value: &str) -> Result<CString, String> {
@@ -100,27 +102,31 @@ unsafe extern "C" fn quiet_log(_: c_int, _: *const c_char) {}
 
 impl Native {
     pub fn load() -> Result<Self, String> {
-        let choices = if let Ok(path) = std::env::var("BILIBILIVE_RTC_LIBRARY") {
-            vec![path]
-        } else if cfg!(target_os = "windows") {
-            vec!["datachannel.dll".into(), "libdatachannel.dll".into()]
-        } else if cfg!(target_os = "macos") {
-            vec![
-                "libdatachannel.0.24.dylib".into(),
-                "/opt/homebrew/lib/libdatachannel.0.24.dylib".into(),
-            ]
-        } else {
-            vec!["libdatachannel.so.0.24".into()]
-        };
+        let selection = crate::bundle::rtc_library()?;
+        let search = crate::bundle::LibrarySearch::new(&selection)?;
         let mut library = None;
-        for path in choices {
-            let name = cstring(&path)?;
-            if let Ok(loaded) = unsafe { Library::open(&name) } {
+        let mut selected_path = None;
+        for path in &selection.candidates {
+            #[cfg(windows)]
+            let loaded = {
+                use std::os::windows::ffi::OsStrExt;
+                let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+                unsafe { Library::open_wide(&wide) }
+            };
+            #[cfg(unix)]
+            let loaded = {
+                use std::os::unix::ffi::OsStrExt;
+                let name = CString::new(path.as_os_str().as_bytes()).map_err(|e| e.to_string())?;
+                unsafe { Library::open(&name) }
+            };
+            if let Ok(loaded) = loaded {
                 library = Some(loaded);
+                selected_path = Some(path.clone());
                 break;
             }
         }
-        let library=library.ok_or("libdatachannel 0.24 is not installed; install libdatachannel to enable native PK media")?;
+        let library = library.ok_or_else(|| format!("libdatachannel 0.24 could not be loaded from {}: {:?}; install the native media runtime or use BILIBILIVE_RTC_LIBRARY", selection.source, selection.candidates))?;
+        let source = json!({"source":selection.source,"path":selected_path});
         macro_rules! sym {
             ($name:literal,$kind:ty) => {{
                 let address = library
@@ -158,6 +164,8 @@ impl Native {
         };
         Ok(Self {
             _library: library,
+            _search: search,
+            source,
             functions,
         })
     }
@@ -855,8 +863,8 @@ fn receiver_sdp(tracks: &[Track], video_port: u16, audio_port: u16) -> String {
 
 pub fn doctor() -> Value {
     match Native::load() {
-        Ok(_) => {
-            json!({"available":true,"backend":"libdatachannel-0.24","data_channel_ids":[101,102],"native":true})
+        Ok(native) => {
+            json!({"available":true,"backend":"libdatachannel-0.24","data_channel_ids":[101,102],"native":true,"runtime":native.source})
         }
         Err(error) => json!({"available":false,"backend":"libdatachannel-0.24","error":error}),
     }

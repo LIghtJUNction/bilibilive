@@ -724,7 +724,7 @@ impl Encoder {
             .set_read_timeout(Some(Duration::from_millis(100)))
             .map_err(|e| e.to_string())?;
         let port = socket.local_addr().map_err(|e| e.to_string())?.port();
-        let mut command = Command::new("ffmpeg");
+        let mut command = crate::bundle::command("ffmpeg")?;
         command.args([
             "-hide_banner",
             "-loglevel",
@@ -1207,7 +1207,7 @@ impl Drop for Capture {
 }
 
 pub fn encoders() -> Result<Value, String> {
-    let result = Command::new("ffmpeg")
+    let result = crate::bundle::command("ffmpeg")?
         .args(["-hide_banner", "-encoders"])
         .output()
         .map_err(|e| e.to_string())?;
@@ -1234,7 +1234,7 @@ pub fn probe(args: &Value) -> Result<Value, String> {
         .map_err(|error| error.to_string())?
         .port();
     let payload = if codec == "av1" { 98 } else { 96 };
-    let mut command = Command::new("ffmpeg");
+    let mut command = crate::bundle::command("ffmpeg")?;
     command.args(["-hide_banner", "-loglevel", "error", "-nostdin"]);
     if encoder == "h264_vaapi" {
         command.args([
