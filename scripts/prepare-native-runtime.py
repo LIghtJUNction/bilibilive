@@ -399,8 +399,14 @@ def prepare_plugin(plan: dict, target: str, cache: Path, output: Path, jobs: int
         require(artifact.is_file(), "Linux plugin module was not produced")
         destination = output / "resources/obs-plugin" / name
         (destination / "bin/64bit").mkdir(parents=True); shutil.copy2(artifact, destination / entry)
-    shutil.copy2(ROOT / "LICENSE", destination / "LICENSE")
-    shutil.copy2(ROOT / "plugins/obs-bilibilive-pk/UPSTREAM.md", destination / "UPSTREAM.md")
+    # macOS bundles seal resources under Contents; loose root-level notices
+    # cause codesign to reject the otherwise valid plugin as unsealed content.
+    notices = destination / "Contents/Resources" if "darwin" in target else destination
+    notices.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(ROOT / "LICENSE", notices / "LICENSE")
+    shutil.copy2(ROOT / "plugins/obs-bilibilive-pk/UPSTREAM.md", notices / "UPSTREAM.md")
+    if "darwin" in target:
+        require({path.name for path in destination.iterdir()} == {"Contents"}, "macOS plugin has unsealed files outside Contents")
     if "darwin" not in target: (destination / "data/locale").mkdir(parents=True)
     info = inspect_binary(destination / entry, target)
     if "windows" in target:

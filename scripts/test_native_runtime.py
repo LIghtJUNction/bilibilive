@@ -7,6 +7,7 @@ import json
 import ntpath
 from pathlib import Path
 import os
+import plistlib
 import posixpath
 import re
 import struct
@@ -120,6 +121,37 @@ class NativePayloadTests(unittest.TestCase):
         runtime,receipt=native.prepare_runtime({},"x86_64-unknown-linux-gnu",self.root,self.root,2,None)
         self.assertEqual(runtime,{"mode":"system","executables":{},"libraries":{}})
         self.assertIn("distribution-managed",receipt["delivery"])
+
+    def test_macos_plugin_notices_are_sealed_resources(self):
+        plan={"sources":{"obs":{"tag":"33.0.2"}}}
+        binary=bytearray(64);binary[:4]=b"\xcf\xfa\xed\xfe";struct.pack_into("<I",binary,4,0x0100000c)
+        for extra_root_file in (False,True):
+            root=self.root/str(extra_root_file);cache=root/"cache";output=root/"payload"
+            def build(source,build,prefix,options,logs,name,*args,**kwargs):
+                if name!="obs-plugin":return
+                bundle=prefix/"obs-bilibilive-pk.plugin"
+                (bundle/"Contents/MacOS").mkdir(parents=True)
+                (bundle/"Contents/MacOS/obs-bilibilive-pk").write_bytes(binary)
+                (bundle/"Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleExecutable":"obs-bilibilive-pk"}))
+                (bundle/"Contents/Resources").mkdir()
+                (bundle/"Contents/Resources/existing-resource").write_bytes(b"preserved resource")
+                if extra_root_file:(bundle/"unexpected.txt").write_bytes(b"unsealed root fixture")
+            with self.subTest(extra_root_file=extra_root_file),patch.object(native,"source_checkout",return_value=root/"obs"),\
+                    patch.object(native,"obs_dependencies",return_value=([],[],"6.10.1")),\
+                    patch.object(native,"cmake_build",side_effect=build),\
+                    patch.object(native,"run",return_value="plugin:\n @rpath/libobs.framework/libobs (compatibility version 1.0.0)"):
+                if extra_root_file:
+                    with self.assertRaisesRegex(RuntimeError,"unsealed files outside Contents"):
+                        native.prepare_plugin(plan,"aarch64-apple-darwin",cache,output,2)
+                    continue
+                receipt=native.prepare_plugin(plan,"aarch64-apple-darwin",cache,output,2)
+            bundle=output/receipt["root"];resources=bundle/"Contents/Resources"
+            self.assertEqual({path.name for path in bundle.iterdir()},{"Contents"})
+            self.assertEqual((resources/"LICENSE").read_bytes(),(native.ROOT/"LICENSE").read_bytes())
+            self.assertEqual((resources/"UPSTREAM.md").read_bytes(),(native.ROOT/"plugins/obs-bilibilive-pk/UPSTREAM.md").read_bytes())
+            self.assertEqual((resources/"existing-resource").read_bytes(),b"preserved resource")
+            self.assertEqual((bundle/receipt["entrypoint"]).read_bytes(),binary)
+            self.assertEqual(receipt["binary"]["architecture"],"arm64")
 
     def test_official_ffmpeg_source_selects_highest_stable_release(self):
         body=b'<a href="ffmpeg-8.1.2.tar.xz">x</a><a href="ffmpeg-9.1.tar.xz">y</a>'
