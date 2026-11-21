@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "package_version": "0.1.3",
+  "snapshot_at_utc": "2026-11-21T17:01:13.412003+00:00",
+  "external_checked_at_utc": "2026-11-21T16:54:17.267735+00:00",
+  "external_dependencies": [
+    {
+      "package": "libc",
+      "declared": "0.2.191",
+      "latest": "0.2.191",
+      "url": "https://crates.io/api/v1/crates/libc"
+    },
+    {
+      "package": "serde",
+      "declared": "1.0.229",
+      "latest": "1.0.229",
+      "url": "https://crates.io/api/v1/crates/serde"
+    },
+    {
+      "package": "serde_json",
+      "declared": "1.0.154",
+      "latest": "1.0.154",
+      "url": "https://crates.io/api/v1/crates/serde_json"
+    },
+    {
+      "package": "semver",
+      "declared": "1.0.28",
+      "latest": "1.0.28",
+      "url": "https://crates.io/api/v1/crates/semver"
+    },
+    {
+      "package": "velopack",
+      "declared": "1.2.161",
+      "latest": "1.2.161",
+      "url": "https://crates.io/api/v1/crates/velopack"
+    },
+    {
+      "package": "reqwest",
+      "declared": "0.13.5",
+      "latest": "0.13.5",
+      "url": "https://crates.io/api/v1/crates/reqwest"
+    },
+    {
+      "package": "rustls",
+      "declared": "0.23.46",
+      "latest": "0.23.46",
+      "url": "https://crates.io/api/v1/crates/rustls"
+    },
+    {
+      "package": "md5",
+      "declared": "0.8.1",
+      "latest": "0.8.1",
+      "url": "https://crates.io/api/v1/crates/md5"
+    },
+    {
+      "package": "keyring",
+      "declared": "4.2.0",
+      "latest": "4.2.0",
+      "url": "https://crates.io/api/v1/crates/keyring"
+    },
+    {
+      "package": "sha2",
+      "declared": "0.11.1",
+      "latest": "0.11.1",
+      "url": "https://crates.io/api/v1/crates/sha2"
+    },
+    {
+      "package": "hmac",
+      "declared": "0.13.0",
+      "latest": "0.13.0",
+      "url": "https://crates.io/api/v1/crates/hmac"
+    },
+    {
+      "package": "base64",
+      "declared": "0.23.1",
+      "latest": "0.23.1",
+      "url": "https://crates.io/api/v1/crates/base64"
+    },
+    {
+      "package": "getrandom",
+      "declared": "0.4.3",
+      "latest": "0.4.3",
+      "url": "https://crates.io/api/v1/crates/getrandom"
+    },
+    {
+      "package": "tungstenite",
+      "declared": "0.30.0",
+      "latest": "0.30.0",
+      "url": "https://crates.io/api/v1/crates/tungstenite"
+    },
+    {
+      "package": "flate2",
+      "declared": "1.1.11",
+      "latest": "1.1.11",
+      "url": "https://crates.io/api/v1/crates/flate2"
+    },
+    {
+      "package": "brotli",
+      "declared": "9.1.3",
+      "latest": "9.1.3",
+      "url": "https://crates.io/api/v1/crates/brotli"
+    },
+    {
+      "package": "qrcodegen",
+      "declared": "1.8.0",
+      "latest": "1.8.0",
+      "url": "https://crates.io/api/v1/crates/qrcodegen"
+    },
+    {
+      "package": "image",
+      "declared": "0.25.10",
+      "latest": "0.25.10",
+      "url": "https://crates.io/api/v1/crates/image"
+    },
+    {
+      "package": "tray-icon",
+      "declared": "0.26.1",
+      "latest": "0.26.1",
+      "url": "https://crates.io/api/v1/crates/tray-icon"
+    }
+  ],
+  "internal_dependencies": [
+    {
+      "package": "z64",
+      "version": "0.1.2",
+      "source": "git+https://github.com/LIghtJUNction/z64.git#7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd"
+    },
+    {
+      "package": "zcall",
+      "version": "0.4.1",
+      "source": "git+https://github.com/LIghtJUNction/zcall.git#8dd30a922a0aedbe821f610649b1ab26078d1882"
+    },
+    {
+      "package": "zclap",
+      "version": "0.1.4",
+      "source": "git+https://github.com/LIghtJUNction/zclap.git#4d87f3ae3743e81509d5ac5500909955667c860f"
+    },
+    {
+      "package": "zconv",
+      "version": "0.4.1",
+      "source": "git+https://github.com/LIghtJUNction/zconv.git#f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712"
+    },
+    {
+      "package": "zgpui",
+      "version": "0.1.6",
+      "source": "git+https://github.com/LIghtJUNction/zgpui.git#174a8b73087deeac2ecfa036cad8bddba71c612f"
+    },
+    {
+      "package": "zmcpio",
+      "version": "0.5.0",
+      "source": "git+https://github.com/LIghtJUNction/zmcpio.git#c114a5ae9f925c64f3b090b8524016cbb90b6cff"
+    },
+    {
+      "package": "zsys",
+      "version": "0.1.1",
+      "source": "git+https://github.com/LIghtJUNction/zsys.git#808fcfdb73584ca7ca122e20b76f0209f56ab0f7"
+    },
+    {
+      "package": "zuse-computer",
+      "version": "0.5.0",
+      "source": "git+https://github.com/LIghtJUNction/zuse.git#b5ebbd3679af215706cbd73b17045e014f5e0524"
+    }
+  ],
+  "default_branch_heads_verified": true,
+  "update_command": [
+    "cargo",
+    "update",
+    "-p",
+    "zuse-computer"
+  ],
+  "update_exit_code": 0,
+  "zuse_changed_from": {
+    "version": "0.4.2",
+    "commit": "d67e47c5dcd443ad9121a908ca57059160249051"
+  },
+  "zuse_changed_to": {
+    "version": "0.5.0",
+    "commit": "b5ebbd3679af215706cbd73b17045e014f5e0524"
+  },
+  "development_manifests_have_no_git_version_or_ref_selectors": true,
+  "cargo_lock_sha256": "276df58f4fc49a1c52c8d8dbed7056dff863cecb26ce384a6f3e64e066d33c6a",
+  "registry_projection_policy": "Verify every included dependency source file against its exact published crate. The native build snapshot does not waive this independent publication gate.",
+  "source_scope_guard_sha256": "92f142b65123b3c7ee347337139d539c6e187a9605c9c314bed786f94ff06f1e"
+}

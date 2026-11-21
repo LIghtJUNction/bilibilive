@@ -358,6 +358,19 @@ fn decode_value(value: ScriptValue<'_>) -> Result<Value, String> {
 
 fn describe_step(index: usize, step: &Step) -> Value {
     let mut arguments = step.arguments.clone();
+    if step.operation == "config.set" {
+        if let Some(key) = step.arguments["key"].as_str() {
+            if key == "proxy" {
+                arguments["value"] = "[redacted]".into();
+            } else {
+                // Preferences use a generic `value` slot. Apply the same
+                // secret-field policy to its named setting before rendering.
+                let mut setting = json!({key:arguments["value"].clone()});
+                redact(&mut setting);
+                arguments["value"] = setting[key].clone();
+            }
+        }
+    }
     redact(&mut arguments);
     redact_challenges(&mut arguments);
     let mut value = json!({"index":index+1,"operation":step.operation,"arguments":arguments,"read_only":step.read_only,
@@ -827,6 +840,14 @@ mod tests {
         )
         .unwrap();
         assert!(!plan.to_string().contains("synthetic-secret"));
+        for source in [
+            "config.set(key=\"proxy\",value=\"http://user:synthetic-secret@127.0.0.1:8888\")",
+            "config.set(key=\"obs_password\",value=\"synthetic-secret\")",
+        ] {
+            let plan = execute(&fixture.app, source, None, true, false).unwrap();
+            assert_eq!(plan["steps"][0]["arguments"]["value"], "[redacted]");
+            assert!(!plan.to_string().contains("synthetic-secret"));
+        }
         assert!(
             execute(
                 &fixture.app,

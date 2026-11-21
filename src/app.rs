@@ -536,9 +536,8 @@ impl App {
             value["receipt_replayed"] = json!(true);
             return Ok(value);
         }
-        let apply_started = Instant::now();
         let prepared = std::cell::Cell::new(false);
-        let result = self.inner.updater.apply_with_prepare(args, || {
+        let result = self.inner.updater.apply_with_prepare_deadline(args, || {
             self.with_account_lease(|| {
                 self.inner.retiring.store(true, Ordering::Release);
                 self.observer_stop()?;
@@ -548,7 +547,7 @@ impl App {
             })
         });
         match result {
-            Ok(mut value) => {
+            Ok((mut value, exit_deadline)) => {
                 if prepared.get() {
                     value["local_sessions_retired"] = json!(true);
                     value["room_changed"] = json!(false);
@@ -561,10 +560,7 @@ impl App {
                             staged_id: args["staged_id"].as_str().unwrap_or_default().to_owned(),
                             restart: args["restart"].as_bool().unwrap_or(true),
                             value: value.clone(),
-                            expires_at: apply_started
-                                + Duration::from_secs(
-                                    value["exit_timeout_seconds"].as_u64().unwrap_or(60).min(60),
-                                ),
+                            expires_at: exit_deadline,
                         });
                         self.inner
                             .update_helper_ready

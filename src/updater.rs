@@ -492,6 +492,19 @@ impl Updater {
     where
         F: FnOnce() -> Result<(), String>,
     {
+        self.apply_with_prepare_deadline(args, prepare)
+            .map(|(value, _)| value)
+    }
+    /// Internal monotonic deadline starts at helper launch, after all package
+    /// verification and local session preparation have finished.
+    pub(crate) fn apply_with_prepare_deadline<F>(
+        &self,
+        args: &Value,
+        prepare: F,
+    ) -> Result<(Value, Instant), String>
+    where
+        F: FnOnce() -> Result<(), String>,
+    {
         let _operation = self
             .inner
             .operation
@@ -552,16 +565,20 @@ impl Updater {
             "--config-dir".into(),
             self.directory.to_string_lossy().into_owned(),
         ];
+        // Acquire the last fallible state lock before launching the helper so a
+        // successful spawn can always retain its receipt and installation lock.
+        let mut state = self.inner.state.lock().map_err(lock_error)?;
+        let exit_deadline = Instant::now() + Duration::from_secs(60);
         if let Err(error) =
             manager.wait_exit_then_apply_updates(&candidate.asset, false, restart, restart_args)
         {
             let error = format!(
                 "Local preparation completed, but the update helper could not start: {error}"
             );
-            self.fail(&error);
+            state.phase = "failed".into();
+            state.error = Some(error.clone());
             return Err(error);
         }
-        let mut state = self.inner.state.lock().map_err(lock_error)?;
         state.phase = "restart_pending".into();
         state.apply_lock = Some(file_lock);
         state.candidate = Some(candidate);
@@ -574,7 +591,7 @@ impl Updater {
         result["message"] = json!(
             "Close this application or host within 60 seconds to let the verified update finish. Persistent MCP/HTTP hosts must exit normally; no process is killed automatically."
         );
-        Ok(result)
+        Ok((result, exit_deadline))
     }
     fn fail(&self, message: &str) {
         if let Ok(mut state) = self.inner.state.lock() {
