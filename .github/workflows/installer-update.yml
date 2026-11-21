@@ -1,0 +1,79 @@
+name: Installer update validation
+
+on:
+  push:
+    paths:
+      - 'packaging/installer_update_probe.py'
+      - 'packaging/test_installer_update_probe.py'
+      - '.github/workflows/installer-update.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHONDONTWRITEBYTECODE: '1'
+
+jobs:
+  update:
+    name: Update and restart on ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            os: windows-2025-vs2026
+            target: x86_64-pc-windows-msvc
+          - platform: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - platform: macos-x64
+            os: macos-26-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      NATIVE_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v6.1.0
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install official Velopack packaging tool
+        shell: python
+        run: |
+          import os, pathlib, subprocess
+          tools = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bilibilive-vpk'
+          subprocess.run(['dotnet', 'tool', 'install', 'vpk', '--version', '1.2.161',
+                          '--tool-path', str(tools)], check=True)
+          with open(os.environ['GITHUB_PATH'], 'a', encoding='utf-8') as output:
+              output.write(str(tools) + '\n')
+      - name: Verify installer boundary fixtures
+        shell: python
+        run: |
+          import subprocess, sys
+          subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s',
+                          'packaging', '-p', 'test_installer*.py'], check=True)
+      - name: Verify native download, apply and restart
+        shell: python
+        run: |
+          import os, pathlib, subprocess, sys
+          work = pathlib.Path(os.environ['RUNNER_TEMP']) / 'bilibilive-update-probe'
+          subprocess.run([sys.executable, '-B', 'packaging/installer_update_probe.py',
+                          '--work', str(work), '--target', os.environ['NATIVE_TARGET'],
+                          '--output', str(work / 'verification.json')], check=True)
+      - name: Preserve update verification and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: installer-update-${{ matrix.platform }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/bilibilive-update-probe/verification.json
+            ${{ runner.temp }}/bilibilive-update-probe/context.json
+            ${{ runner.temp }}/bilibilive-update-probe/receipts/*.json
+            ${{ runner.temp }}/bilibilive-update-probe/logs/*.log
+          if-no-files-found: warn
+          retention-days: 14

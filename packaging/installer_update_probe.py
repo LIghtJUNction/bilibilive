@@ -200,7 +200,25 @@ def read_json(path, limit=1024 * 1024):
 
 def contained(path, root):
     path, root = Path(path).resolve(), Path(root).resolve()
-    return path != root and path.is_relative_to(root)
+    if path != root and path.is_relative_to(root):
+        return True
+    # Windows preserves an existing \\?\ prefix in resolve(). Compare the
+    # actual directories when Rust and Python used different path spellings.
+    # The lexical check above also supports work/output paths not yet created.
+    if root.exists():
+        for parent in path.parents:
+            try:
+                if parent.samefile(root):
+                    return True
+            except FileNotFoundError:
+                continue
+    return False
+
+
+def validate_downloaded_package(package, packages, expected_sha256):
+    package = Path(package).resolve(strict=True)
+    require(contained(package, packages), "Downloaded package left its private cache")
+    require(digest(package) == expected_sha256, "Downloaded package bytes differ")
 
 
 def private_work(path, runner_temp):
@@ -292,9 +310,9 @@ def validate_confirmation(receipt, context, expected_sha256, old_pid):
     require(type(receipt.get("pid")) is int and receipt["pid"] > 0 and receipt["pid"] != old_pid,
             "Confirmation did not come from a new process")
     executable = Path(receipt["executable"]).resolve(strict=True)
-    require(executable == Path(context["executable"]).resolve(strict=True)
+    require(executable.samefile(Path(context["executable"]).resolve(strict=True))
             and contained(executable, context["install_root"]), "Restarted executable left its private installation")
-    require(Path(receipt["packages"]).resolve(strict=True) == Path(context["packages"]).resolve(strict=True),
+    require(Path(receipt["packages"]).resolve(strict=True).samefile(Path(context["packages"]).resolve(strict=True)),
             "Restarted SDK cache is not private")
     require(receipt.get("installation_portable") is True, "Probe lost portable installation identity")
     require(digest(executable) == expected_sha256, "Restarted executable differs from the new update package")
@@ -577,9 +595,7 @@ incremental = false
                     "Helper receipt did not originate from the old probe")
             require(downloaded.get("nonce") == self.nonce and downloaded.get("source") == "FileSource",
                     "Download receipt is not from the private source")
-            downloaded_package = Path(downloaded["package"])
-            require(contained(downloaded_package, context["packages"])
-                    and digest(downloaded_package) == new["package_sha256"], "Downloaded package bytes differ")
+            validate_downloaded_package(downloaded["package"], context["packages"], new["package_sha256"])
             confirmed = validate_confirmation(read_json(confirmation), context, new["executable_sha256"], self.child.pid)
             # Give the official helper and the short-lived new process time to
             # return; all runtime waiting remains inside the same 90s deadline.

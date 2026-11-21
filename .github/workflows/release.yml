@@ -319,6 +319,8 @@ jobs:
             ${{ runner.temp }}/bilibilive-native-cache/validation/**/verification.json
             ${{ runner.temp }}/bilibilive-build-tools/tools.json
             ${{ runner.temp }}/bilibilive-update-probe/verification.json
+            ${{ runner.temp }}/bilibilive-update-probe/context.json
+            ${{ runner.temp }}/bilibilive-update-probe/receipts/*.json
             ${{ runner.temp }}/bilibilive-update-probe/logs/*.log
             dist/*-smoke*.json
             dist/*-verification.json
