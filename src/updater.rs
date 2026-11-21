@@ -98,6 +98,13 @@ impl Installation {
     }
     fn value(&self, latest: Option<&str>) -> Value {
         let mut value = serde_json::to_value(self).unwrap_or_else(|_| json!({"kind":"unknown"}));
+        if latest.is_none() {
+            if let Some(object) = value.as_object_mut() {
+                object.remove("manual_program");
+                object.remove("manual_args");
+            }
+            return value;
+        }
         let args = self
             .manual_args
             .iter()
@@ -222,6 +229,9 @@ pub struct Updater {
 }
 impl Updater {
     pub fn new(state_dir: PathBuf) -> Self {
+        // Match the vault's lexical absolute profile identity. A helper restarts
+        // from the installation directory, so relative CLI paths cannot be kept.
+        let state_dir = std::path::absolute(&state_dir).unwrap_or(state_dir);
         Self {
             directory: state_dir,
             inner: Arc::new(Inner {
@@ -328,12 +338,12 @@ impl Updater {
             Ok((latest, url, candidate)) => {
                 state.available =
                     Version::parse(&latest).map_err(|e| e.to_string())? > current_version()?;
-                state.phase = if installation.kind != "velopack" {
-                    "manual"
-                } else if state.available {
-                    "available"
-                } else {
+                state.phase = if !state.available {
                     "up_to_date"
+                } else if installation.kind != "velopack" {
+                    "manual"
+                } else {
+                    "available"
                 }
                 .into();
                 state.latest = Some(latest);
@@ -575,8 +585,13 @@ impl Updater {
 }
 
 fn status_value(state: &State, installation: &Installation) -> Value {
-    let identity = installation.value(state.latest.as_deref());
-    let mut value = json!({"phase":state.phase,"current":crate::VERSION,"latest":state.latest,
+    let identity = installation.value(if state.available {
+        state.latest.as_deref()
+    } else {
+        None
+    });
+    let mut value = json!({"ok":state.phase != "failed","status":state.phase,
+        "phase":state.phase,"current":crate::VERSION,"latest":state.latest,
         "update_available":state.available,"installation":identity,"progress":state.progress,
         "can_download":state.phase == "available" && state.candidate.is_some(),
         "can_apply":state.phase == "downloaded" && state.candidate.is_some(),"url":state.url});
@@ -900,7 +915,7 @@ fn detect_installation(executable: &Path) -> Result<Installation, String> {
                         installation.source = Some(source);
                         installation.manual_program = Some("cargo".into());
                         installation.manual_args = args;
-                        installation.reason = Some("Cargo owns this executable; run the displayed Cargo command to update it".into());
+                        installation.reason = Some("Cargo owns this executable; updates must preserve its installed features and prefix".into());
                     }
                     Err(error) => {
                         installation.kind = "unknown".into();
@@ -1702,5 +1717,65 @@ mod tests {
         );
         assert!(!called.get());
         fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn structured_failure_is_rejected_by_every_shared_frontend() {
+        let updater = Updater::new(PathBuf::from("private-relative-profile"));
+        assert!(updater.directory.is_absolute());
+        let installation = installation();
+        let mut state = updater.inner.state.lock().unwrap();
+        for phase in [
+            "idle",
+            "manual",
+            "up_to_date",
+            "available",
+            "downloading",
+            "downloaded",
+            "restart_pending",
+        ] {
+            state.phase = phase.into();
+            assert!(
+                crate::app::is_success(&status_value(&state, &installation)),
+                "{phase}"
+            );
+        }
+        state.phase = "failed".into();
+        state.error = Some("private transport fixture".into());
+        let value = status_value(&state, &installation);
+        assert_eq!(value["ok"], false);
+        assert_eq!(value["status"], "failed");
+        assert!(!crate::app::is_success(&value));
+        assert!(!updater.directory.exists());
+    }
+    #[test]
+    fn manual_installations_never_suggest_a_premature_or_downgrade_command() {
+        let updater = Updater::new(PathBuf::from("unused-profile"));
+        let mut installation = installation();
+        installation.kind = "cargo".into();
+        installation.manual_program = Some("cargo".into());
+        installation.manual_args = vec![
+            "install".into(),
+            "--version".into(),
+            "{version}".into(),
+            "bilibilive".into(),
+        ];
+        let mut state = updater.inner.state.lock().unwrap();
+        state.phase = "up_to_date".into();
+        state.latest = Some("0.0.1".into());
+        state.available = false;
+        let value = status_value(&state, &installation);
+        assert!(value.get("manual_command").is_none());
+        assert!(value["installation"].get("manual_args").is_none());
+        state.latest = Some("999.0.0".into());
+        state.available = true;
+        state.phase = "manual".into();
+        let value = status_value(&state, &installation);
+        assert!(
+            value["manual_command"]
+                .as_str()
+                .unwrap()
+                .contains("--version 999.0.0")
+        );
+        assert!(crate::app::is_success(&value));
     }
 }
