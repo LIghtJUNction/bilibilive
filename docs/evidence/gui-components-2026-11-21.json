@@ -1,0 +1,36 @@
+{
+  "checked_at": "2026-11-21T16:32:30.143031+00:00",
+  "base": "6a6801492e0d70ca6cc8103f92fe76ac7f2da2df",
+  "version": "0.1.2",
+  "command": "cargo test --locked --lib gui::tests",
+  "features": "default (gui, zgpui/native, OpenGL)",
+  "exit_code": 0,
+  "tests_passed": 21,
+  "new_component_tests": 11,
+  "environment": "Linux sandbox, real native C libraries linked; no window opened",
+  "sdk": "15 official Debian development packages extracted to a private prefix; existing system runtime libraries",
+  "tested_gui_sha256": "f2ead3050ba23dedf3a4a224f1a4c8f15397f9f1d007b47d080ea96531bf3204",
+  "lock_sha256": "a3d5ece1986450ec20a716fcb317500def51c919463d2767c61bceff7949796f",
+  "log_sha256": "4033656e223b6cdc654e31243f0fbe8eb76303788cedc247bb1a60c23132bd78",
+  "pending_integration": [
+    "App::update_exit_requested lifecycle hook",
+    "main startup_hooks and CLI argument fixture",
+    "real updater/plugin dispatcher integration",
+    "native update-page window review"
+  ],
+  "side_effects": {
+    "network_update_checks": 0,
+    "downloads": 0,
+    "actual_installs": 0,
+    "obs_actions": 0,
+    "broadcasts": 0
+  },
+  "final_gui_sha256": "db6c42aa26e0aaefcfd605b5a85459abf4f1877ab2bf7cbc10866b52c4c3a7f1",
+  "final_main_sha256": "4ad558d0ce05f2163efff7564f69af52ea72bcfacac1d5e88da44f829faa6d7a",
+  "after_test_changes": [
+    "shared App update-exit lifecycle hook and queued-request cancellation",
+    "plugin label uses current installed state before retaining restart hint",
+    "CLI startup hook, noupdate passthrough and argument parsing fixture"
+  ],
+  "claim_scope": "Controller fixtures on the identified tested snapshot; merged backend/main and native window validation are separate gates."
+}

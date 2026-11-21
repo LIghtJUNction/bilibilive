@@ -6,7 +6,11 @@ use crate::desktop::{
 use qrcodegen::{QrCode, QrCodeEcc};
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+    mpsc::{self, Receiver, Sender},
+};
 use std::time::{Duration, Instant};
 use zgpui::native::{ButtonStyle, Canvas, Event, Palette, Rect, Theme, Ui, Window, colors};
 
@@ -33,6 +37,7 @@ enum Page {
     Cover,
     Titles,
     Appearance,
+    Components,
 }
 
 impl Page {
@@ -49,6 +54,7 @@ impl Page {
             Self::Cover => "封面裁剪",
             Self::Titles => "最近使用的标题",
             Self::Appearance => "外观与桌面",
+            Self::Components => "更新与组件",
         }
     }
     fn eyebrow(self) -> &'static str {
@@ -64,6 +70,7 @@ impl Page {
             Self::Cover => "FRAME YOUR NEXT LIVE",
             Self::Titles => "PICK UP WHERE YOU LEFT OFF",
             Self::Appearance => "A SPACE OF YOUR OWN",
+            Self::Components => "READY FOR WHAT IS NEXT",
         }
     }
 }
@@ -186,10 +193,30 @@ struct Desktop {
     appearance_loaded: bool,
     account_generation: u64,
     account_context_seen: bool,
+    no_update: bool,
+    startup_update_handled: bool,
+    updates: Value,
+    update_pending: String,
+    update_error: String,
+    update_poll: Instant,
+    update_apply_requested: bool,
+    quit_requested: bool,
+    local_sessions_retired: bool,
+    plugin: Value,
+    plugin_pending: bool,
+    plugin_error: String,
+    plugin_replace: bool,
+    plugin_restart_required: bool,
 }
 
 /// Open the native application. Demo mode never invokes the dispatcher.
 pub fn run(app: App, demo: bool) -> Result<(), String> {
+    run_with_options(app, demo, false)
+}
+
+/// Open the studio, optionally suppressing this launch's automatic version check.
+/// Downloads and installation always require an explicit operation.
+pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), String> {
     let directory = app.directory().to_owned();
     let read_only = app.is_read_only();
     let initial = if demo {
@@ -212,10 +239,19 @@ pub fn run(app: App, demo: bool) -> Result<(), String> {
     };
     let (tx, requests) = mpsc::channel::<Request>();
     let (responses, rx) = mpsc::channel::<Response>();
-    std::thread::Builder::new()
+    let lifecycle = app.clone();
+    let stopping = Arc::new(AtomicBool::new(false));
+    let worker_stopping = stopping.clone();
+    let worker = std::thread::Builder::new()
         .name("bilibilive-ui-worker".into())
         .spawn(move || {
             while let Ok(request) = requests.recv() {
+                if worker_stopping.load(Ordering::Acquire) {
+                    if let Some(path) = request.cleanup {
+                        let _ = std::fs::remove_file(path);
+                    }
+                    break;
+                }
                 let result = if demo {
                     demo_response(&request.method)
                 } else {
@@ -234,10 +270,16 @@ pub fn run(app: App, demo: bool) -> Result<(), String> {
                     break;
                 }
             }
+            for request in requests.try_iter() {
+                if let Some(path) = request.cleanup {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
         })
         .map_err(|e| e.to_string())?;
 
     let mut desktop = Desktop::new(tx, rx, demo, read_only);
+    desktop.no_update = no_update;
     desktop.directory = directory;
     desktop.config = initial;
     desktop.images = Some(Images::new()?);
@@ -306,6 +348,10 @@ pub fn run(app: App, demo: bool) -> Result<(), String> {
             }
         }
         let response_changed = desktop.receive();
+        if desktop.quit_requested || lifecycle.update_exit_requested() {
+            desktop.quit_requested = true;
+            break;
+        }
         let images_changed = desktop.receive_images();
         let interaction_changed = desktop.handle_event(event.as_ref());
         let wants_tray = !demo
@@ -473,6 +519,18 @@ pub fn run(app: App, demo: bool) -> Result<(), String> {
             break;
         }
     }
+    // Applying an update must release the dispatcher before the restart helper
+    // replaces this process. Remote apply also discards unstarted UI requests.
+    let applied_update = desktop.quit_requested;
+    if applied_update {
+        stopping.store(true, Ordering::Release);
+    }
+    drop(desktop);
+    if applied_update {
+        worker
+            .join()
+            .map_err(|_| "The background dispatcher failed during update shutdown")?;
+    }
     Ok(())
 }
 
@@ -606,6 +664,20 @@ impl Desktop {
             appearance_loaded: false,
             account_generation: 0,
             account_context_seen: false,
+            no_update: false,
+            startup_update_handled: false,
+            updates: json!({}),
+            update_pending: String::new(),
+            update_error: String::new(),
+            update_poll: Instant::now(),
+            update_apply_requested: false,
+            quit_requested: false,
+            local_sessions_retired: false,
+            plugin: json!({}),
+            plugin_pending: false,
+            plugin_error: String::new(),
+            plugin_replace: false,
+            plugin_restart_required: false,
         }
     }
 
@@ -614,7 +686,30 @@ impl Desktop {
     }
 
     fn submit_cleanup(&mut self, method: &str, args: Value, cleanup: Option<PathBuf>) -> bool {
-        if self.pending >= 12 {
+        let restricted = (self.demo || self.read_only)
+            && matches!(
+                method,
+                "updates.download" | "updates.apply" | "obs.plugin.install"
+            );
+        if restricted || self.update_apply_requested || self.quit_requested {
+            if let Some(path) = cleanup {
+                let _ = std::fs::remove_file(path);
+            }
+            self.notice(
+                if restricted {
+                    "演示或只读模式不会下载、安装或应用更新。"
+                } else {
+                    "正在应用更新，请等待应用正常退出。"
+                },
+                false,
+            );
+            return false;
+        }
+        if self.pending >= 12
+            || (method.starts_with("updates.") && !self.update_pending.is_empty())
+            || (method.starts_with("obs.plugin.") && self.plugin_pending)
+            || (method == "updates.apply" && self.pending != 0)
+        {
             if let Some(path) = cleanup {
                 let _ = std::fs::remove_file(path);
             }
@@ -628,6 +723,16 @@ impl Desktop {
         }) {
             Ok(()) => {
                 self.pending += 1;
+                if method.starts_with("updates.") {
+                    self.update_pending = method.into();
+                    self.update_error.clear();
+                    if method == "updates.apply" {
+                        self.update_apply_requested = !self.demo && !self.read_only;
+                    }
+                } else if method.starts_with("obs.plugin.") {
+                    self.plugin_pending = true;
+                    self.plugin_error.clear();
+                }
                 true
             }
             Err(error) => {
@@ -651,7 +756,16 @@ impl Desktop {
             changed = true;
             self.pending = self.pending.saturating_sub(1);
             let method = response.method.as_str();
-            if let Ok(value) = &response.result {
+            let component_operation =
+                method.starts_with("updates.") || method.starts_with("obs.plugin.");
+            if method.starts_with("updates.") {
+                self.update_pending.clear();
+            } else if method.starts_with("obs.plugin.") {
+                self.plugin_pending = false;
+            }
+            if let Ok(value) = &response.result
+                && !component_operation
+            {
                 if let Some(generation) = value
                     .pointer("/_context/generation")
                     .and_then(Value::as_u64)
@@ -703,6 +817,12 @@ impl Desktop {
             }
             match response.result {
                 Err(error) => {
+                    if method.starts_with("updates.") {
+                        self.update_error = error.clone();
+                        self.update_apply_requested = false;
+                    } else if method.starts_with("obs.plugin.") {
+                        self.plugin_error = error.clone();
+                    }
                     if method == "auth.qr.poll" {
                         self.qr_message = error.clone();
                     }
@@ -725,6 +845,72 @@ impl Desktop {
                 Ok(value) => {
                     let data = payload(&value).clone();
                     match method {
+                        "updates.check" | "updates.status" | "updates.download"
+                        | "updates.apply" => {
+                            let was_downloaded = self.updates["phase"] == "downloaded";
+                            self.updates = data;
+                            self.update_error = text(&self.updates, &["error"]);
+                            self.update_poll = Instant::now();
+                            let success =
+                                crate::app::is_success(&value) && self.updates["phase"] != "failed";
+                            if method == "updates.apply" {
+                                if self.updates["local_sessions_retired"] == true {
+                                    self.local_sessions_retired = true;
+                                    self.events_connected = false;
+                                    self.obs_watch_requested = Some(false);
+                                }
+                                self.quit_requested = self.update_apply_requested
+                                    && success
+                                    && self.updates["quit_requested"] == true
+                                    && self.updates["exit_required"] == true;
+                                self.update_apply_requested = false;
+                                if !self.quit_requested {
+                                    self.notice(
+                                        if self.local_sessions_retired {
+                                            "本地媒体连接已停止；更新未完成，请查看错误后重试。直播间状态保留。"
+                                        } else {
+                                            "更新尚未应用，请查看状态后重试。"
+                                        },
+                                        false,
+                                    );
+                                }
+                            } else if method == "updates.check" {
+                                if success && self.updates["update_available"] == true {
+                                    self.notice(
+                                        "发现新版本。前往「更新与组件」查看并选择更新方式。",
+                                        true,
+                                    );
+                                } else if success && self.updates["phase"] == "up_to_date" {
+                                    self.notice("当前已是最新稳定版本。", true);
+                                }
+                            } else if !was_downloaded && self.updates["phase"] == "downloaded" {
+                                self.notice("更新已下载。准备好后，可选择应用并重启。", true);
+                            }
+                            if !success && method != "updates.apply" {
+                                let error = if self.update_error.is_empty() {
+                                    "更新操作未完成，请查看详情。".to_owned()
+                                } else {
+                                    self.update_error.clone()
+                                };
+                                self.notice(&error, false);
+                            }
+                        }
+                        "obs.plugin.status" | "obs.plugin.install" => {
+                            self.plugin = data;
+                            self.plugin_error.clear();
+                            self.plugin_restart_required |= self.plugin["restart_required"] == true;
+                            if method == "obs.plugin.install" {
+                                self.plugin_replace = false;
+                                if crate::app::is_success(&value)
+                                    && self.plugin["installed"] == true
+                                {
+                                    self.notice("插件文件已安装。请在方便时手动重启 OBS。", true);
+                                } else {
+                                    self.plugin_error = text(&self.plugin, &["message", "error"]);
+                                    self.notice("插件安装未完成，请查看组件状态。", false);
+                                }
+                            }
+                        }
                         "config.get" => {
                             self.config = data;
                             self.load_config();
@@ -1074,8 +1260,13 @@ impl Desktop {
                             | "auth.qr.poll"
                             | "danmaku.read"
                             | "face.poll"
+                            | "updates.status"
+                            | "obs.plugin.status"
                     ) {
-                        self.record(method, crate::app::is_success(&value));
+                        let complete = crate::app::is_success(&value)
+                            && (!method.starts_with("updates.")
+                                || payload(&value)["phase"] != "failed");
+                        self.record(method, complete);
                     }
                 }
             }
@@ -1406,7 +1597,30 @@ impl Desktop {
             self.verification_created.is_some(),
             self.pending,
         );
-        if !self.demo && !self.read_only && self.config_loaded && self.pending == 0 {
+        if !self.startup_update_handled && self.config_loaded && self.pending == 0 {
+            self.startup_update_handled = true;
+            if !self.demo
+                && !self.read_only
+                && !self.no_update
+                && self.config["update_check"] == true
+            {
+                self.request_update("updates.check");
+            }
+        }
+        if !self.demo
+            && self.updates["phase"] == "downloading"
+            && self.update_error.is_empty()
+            && self.pending == 0
+            && self.update_poll.elapsed() >= Duration::from_secs(1)
+        {
+            self.request_update("updates.status");
+        }
+        if !self.demo
+            && !self.read_only
+            && !self.local_sessions_retired
+            && self.config_loaded
+            && self.pending == 0
+        {
             let requested = ["obs_auto_connect", "obs_link", "obs_auto_stop"]
                 .into_iter()
                 .any(|key| {
@@ -1561,6 +1775,15 @@ impl Desktop {
             }
             Page::Titles => self.submit("room.titles", json!({})),
             Page::Appearance => self.load_appearance(),
+            Page::Components => {
+                if self.demo {
+                    self.updates = demo_response("updates.status").unwrap_or_default();
+                    self.plugin = demo_response("obs.plugin.status").unwrap_or_default();
+                } else {
+                    self.request_update("updates.status");
+                    self.submit("obs.plugin.status", json!({}));
+                }
+            }
             Page::Accounts => self.submit("account.list", json!({})),
             Page::Obs => self.submit("obs.status", json!({})),
             Page::Pk => self.submit("pk.status", json!({})),
@@ -1641,6 +1864,22 @@ impl Desktop {
         ) {
             self.activate(Page::Settings);
         }
+        if self.updates["update_available"] == true
+            && ui.button(
+                canvas,
+                22,
+                Rect::new(30., height - 198., 160., 36.),
+                if self.updates["phase"] == "downloaded" {
+                    "更新已准备好"
+                } else {
+                    "新版本可用"
+                },
+                ButtonStyle::Secondary,
+                true,
+            )
+        {
+            self.activate(Page::Components);
+        }
         canvas.line((30., height - 91.), (190., height - 91.), 1., HAIRLINE);
         let active_name = self.active_name();
         canvas.rect(Rect::new(31., height - 68., 29., 29.), 14.5, ACCENT_SOFT);
@@ -1666,6 +1905,8 @@ impl Desktop {
         canvas.text(self.page.label(), x, 62., 28, true, INK);
         if self.demo {
             pill(canvas, width - 128., 38., "DEMO", ACCENT, ACCENT_SOFT);
+        } else if self.updates["phase"] == "downloading" {
+            pill(canvas, width - 140., 38., "正在下载", ACCENT, ACCENT_SOFT);
         } else if self.pending > 0 {
             pill(canvas, width - 140., 38., "正在处理", ACCENT, ACCENT_SOFT);
         } else {
@@ -1685,6 +1926,7 @@ impl Desktop {
                 Page::Cover => self.cover_page(canvas, ui, x, content_width, height),
                 Page::Titles => self.titles_page(canvas, ui, x, content_width),
                 Page::Appearance => self.appearance_page(canvas, ui, x, content_width),
+                Page::Components => self.components_page(canvas, ui, x, content_width),
             }
         } else {
             self.verification_panel(canvas, ui, x, content_width, height);
@@ -3549,6 +3791,16 @@ impl Desktop {
             false,
             MUTED,
         );
+        if ui.button(
+            canvas,
+            828,
+            Rect::new(x + 184., 643., 148., 39.),
+            "更新与组件",
+            ButtonStyle::Secondary,
+            true,
+        ) {
+            self.activate(Page::Components);
+        }
         canvas.text(
             "用 Rust 与 Project Z 构建。",
             x + w - 196.,
@@ -3569,6 +3821,393 @@ impl Desktop {
 
     fn set(&mut self, key: &str, value: Value) {
         self.submit("config.set", json!({"key": key, "value": value}));
+    }
+
+    fn request_update(&mut self, method: &str) -> bool {
+        if self.demo {
+            self.notice("演示模式不会检查网络或安装更新。", false);
+            return false;
+        }
+        let args = match method {
+            "updates.check" | "updates.status" => json!({}),
+            "updates.download" | "updates.apply" => {
+                let capability = if method == "updates.download" {
+                    "can_download"
+                } else {
+                    "can_apply"
+                };
+                let staged_id = text(&self.updates, &["staged_id"]);
+                if self.read_only
+                    || self.pending > 0
+                    || self.updates[capability] != true
+                    || staged_id.is_empty()
+                {
+                    self.notice("请先检查版本，确认当前安装方式与更新状态。", false);
+                    return false;
+                }
+                if method == "updates.download" {
+                    json!({"staged_id":staged_id,"wait":false})
+                } else {
+                    json!({"staged_id":staged_id,"restart":true})
+                }
+            }
+            _ => return false,
+        };
+        let submitted = self.submit_cleanup(method, args, None);
+        if submitted {
+            self.update_poll = Instant::now();
+            if method == "updates.check" {
+                self.startup_update_handled = true;
+            }
+        }
+        submitted
+    }
+
+    fn install_plugin(&mut self) -> bool {
+        if self.demo || self.read_only || self.pending > 0 || self.plugin["can_install"] != true {
+            self.notice("当前模式或随包组件尚不支持安装。请查看组件状态。", false);
+            return false;
+        }
+        self.submit_cleanup(
+            "obs.plugin.install",
+            json!({"replace":self.plugin_replace}),
+            None,
+        )
+    }
+
+    fn component_details(&mut self, method: &str, result: &Value) {
+        self.advanced_name = method.into();
+        self.advanced_args = "{}".into();
+        self.advanced_output = serde_json::to_string_pretty(result).unwrap_or_default();
+        self.activate(Page::Advanced);
+    }
+
+    fn components_page(&mut self, canvas: &mut Canvas<'_>, ui: &mut Ui, x: f32, w: f32) {
+        let busy = self.pending > 0;
+        let mutable = !busy && !self.demo && !self.read_only;
+        canvas.text(
+            "选择适合当前安装方式的更新，保持工作空间从容。",
+            x,
+            120.,
+            13,
+            false,
+            MUTED,
+        );
+        if ui.button(
+            canvas,
+            1300,
+            Rect::new(x + w - 116., 108., 116., 34.),
+            "返回偏好设置",
+            ButtonStyle::Quiet,
+            true,
+        ) {
+            self.activate(Page::Settings);
+        }
+
+        canvas.rect(Rect::new(x, 164., w, 300.), 18., PANEL);
+        canvas.text("bilibilive", x + 24., 187., 18, true, INK);
+        let kind = self
+            .updates
+            .pointer("/installation/kind")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let channel = match kind {
+            "velopack" => "安装器管理",
+            "cargo" => "Cargo 安装",
+            "aur" => "Arch 包管理",
+            "portable" => "便携版本",
+            "demo" => "离线演示",
+            _ => "安装来源待确认",
+        };
+        pill(canvas, x + w - 160., 185., channel, MUTED, BG);
+        let current = text(&self.updates, &["current"]);
+        let current = if current.is_empty() {
+            env!("CARGO_PKG_VERSION")
+        } else {
+            &current
+        };
+        let latest = text(&self.updates, &["latest"]);
+        canvas.ellipsis(
+            &format!(
+                "当前 {current}  ·  最新 {}",
+                if latest.is_empty() {
+                    "尚未检查"
+                } else {
+                    &latest
+                }
+            ),
+            x + 24.,
+            222.,
+            w - 48.,
+            12,
+            false,
+            MUTED,
+        );
+        let phase = text(&self.updates, &["phase"]);
+        let status = if self.update_pending == "updates.check" {
+            "正在检查最新稳定版本…"
+        } else if self.demo {
+            "演示模式 · 所有下载与安装操作均已关闭"
+        } else if self.local_sessions_retired && !self.quit_requested {
+            "本地媒体连接已停止；更新未完成，直播间状态保留"
+        } else {
+            match phase.as_str() {
+                "available" => "发现新版本，可选择下载。",
+                "downloading" => "正在下载经过校验的安装包…",
+                "downloaded" => "更新已准备好，点击应用后将退出并重新打开。",
+                "up_to_date" => "当前已是最新稳定版本。",
+                "checking" => "正在检查最新稳定版本…",
+                "failed" => "更新未完成。请查看错误后重新检查。",
+                "manual" => "请使用当前安装渠道提供的命令完成更新。",
+                "restart_pending" => "正在退出并应用更新…",
+                _ => "检查版本后选择下一步。下载与应用均由你确认。",
+            }
+        };
+        canvas.ellipsis(status, x + 24., 254., w - 48., 13, true, INK);
+        let command = text(&self.updates, &["manual_command"]);
+        let release_url = text(&self.updates, &["url"]);
+        if phase == "downloading" {
+            let progress = self.updates["progress"]
+                .as_f64()
+                .unwrap_or(0.)
+                .clamp(0., 100.) as f32;
+            canvas.rect(Rect::new(x + 24., 282., w - 112., 5.), 2.5, HAIRLINE);
+            canvas.rect(
+                Rect::new(x + 24., 282., (w - 112.) * progress / 100., 5.),
+                2.5,
+                ACCENT,
+            );
+            canvas.text(
+                &format!("{progress:.0}%"),
+                x + w - 69.,
+                276.,
+                11,
+                false,
+                MUTED,
+            );
+        } else if !command.is_empty() {
+            canvas.ellipsis(&command, x + 24., 284., w - 166., 12, false, MUTED);
+            if ui.button(
+                canvas,
+                1301,
+                Rect::new(x + w - 126., 276., 102., 30.),
+                "复制更新命令",
+                ButtonStyle::Quiet,
+                true,
+            ) {
+                self.copy = Some(command);
+            }
+        } else if !release_url.is_empty() && matches!(kind, "portable" | "unknown") {
+            canvas.ellipsis(
+                "从正式发布页面选择匹配平台的安装包。",
+                x + 24.,
+                284.,
+                w - 166.,
+                11,
+                false,
+                MUTED,
+            );
+            if ui.button(
+                canvas,
+                1311,
+                Rect::new(x + w - 126., 276., 102., 30.),
+                "复制发布链接",
+                ButtonStyle::Quiet,
+                true,
+            ) {
+                self.copy = Some(release_url);
+            }
+        } else {
+            canvas.ellipsis(
+                "下载完成后仍会等待确认。应用更新会先释放本地媒体连接。",
+                x + 24.,
+                284.,
+                w - 48.,
+                11,
+                false,
+                MUTED,
+            );
+        }
+        if !self.update_error.is_empty() {
+            canvas.ellipsis(&self.update_error, x + 24., 312., w - 48., 11, false, RED);
+        } else if self.read_only {
+            canvas.text(
+                "只读模式可手动检查版本；下载、应用与安装已关闭。",
+                x + 24.,
+                312.,
+                11,
+                false,
+                MUTED,
+            );
+        }
+        let startup_check = self.config["update_check"] == true;
+        canvas.text(
+            if self.no_update {
+                "启动时检查版本（本次已由 --noupdate 暂停）"
+            } else {
+                "启动时检查版本"
+            },
+            x + 24.,
+            350.,
+            12,
+            false,
+            MUTED,
+        );
+        if ui.button(
+            canvas,
+            1302,
+            Rect::new(x + w - 110., 341., 86., 31.),
+            if startup_check {
+                "已开启"
+            } else {
+                "已关闭"
+            },
+            if startup_check {
+                ButtonStyle::Primary
+            } else {
+                ButtonStyle::Secondary
+            },
+            mutable,
+        ) {
+            self.set("update_check", json!(!startup_check));
+        }
+        if ui.button(
+            canvas,
+            1303,
+            Rect::new(x + 24., 399., 118., 39.),
+            "检查新版本",
+            ButtonStyle::Secondary,
+            !busy && !self.demo,
+        ) {
+            self.request_update("updates.check");
+        }
+        if ui.button(
+            canvas,
+            1304,
+            Rect::new(x + 154., 399., 118., 39.),
+            "下载更新",
+            ButtonStyle::Secondary,
+            mutable && self.updates["can_download"] == true,
+        ) {
+            self.request_update("updates.download");
+        }
+        if ui.button(
+            canvas,
+            1305,
+            Rect::new(x + 284., 399., 144., 39.),
+            "应用并重启",
+            ButtonStyle::Primary,
+            mutable && self.updates["can_apply"] == true,
+        ) {
+            self.request_update("updates.apply");
+        }
+        if ui.button(
+            canvas,
+            1306,
+            Rect::new(x + w - 126., 399., 102., 39.),
+            "查看详情",
+            ButtonStyle::Quiet,
+            true,
+        ) {
+            self.component_details("updates.status", &self.updates.clone());
+        }
+
+        canvas.rect(Rect::new(x, 482., w, 228.), 18., PANEL);
+        canvas.text("OBS · PK 媒体组件", x + 24., 505., 17, true, INK);
+        let plugin_version = text(&self.plugin, &["version"]);
+        if !plugin_version.is_empty() {
+            canvas.ellipsis(&plugin_version, x + w - 150., 510., 126., 11, false, MUTED);
+        }
+        let plugin_state = plugin_status_label(&self.plugin, self.plugin_restart_required);
+        canvas.text(plugin_state, x + 24., 538., 13, true, INK);
+        let message = if self.plugin_error.is_empty() {
+            text(&self.plugin, &["message"])
+        } else {
+            self.plugin_error.clone()
+        };
+        canvas.ellipsis(
+            &message,
+            x + 24.,
+            564.,
+            w - 48.,
+            11,
+            false,
+            if self.plugin_error.is_empty() {
+                MUTED
+            } else {
+                RED
+            },
+        );
+        let plugin_path = text(&self.plugin, &["plugin_path"]);
+        canvas.ellipsis(
+            if plugin_path.is_empty() {
+                "此处检查插件文件；OBS 的实际加载状态请在 OBS 内确认。"
+            } else {
+                &plugin_path
+            },
+            x + 24.,
+            589.,
+            w - 48.,
+            11,
+            false,
+            MUTED,
+        );
+        canvas.text(
+            "安装后请手动重启 OBS。应用不会关闭 OBS 或启动推流。",
+            x + 24.,
+            621.,
+            11,
+            false,
+            MUTED,
+        );
+        if ui.button(
+            canvas,
+            1307,
+            Rect::new(x + w - 190., 612., 166., 31.),
+            if self.plugin_replace {
+                "允许替换已有文件"
+            } else {
+                "保留已有文件"
+            },
+            if self.plugin_replace {
+                ButtonStyle::Primary
+            } else {
+                ButtonStyle::Quiet
+            },
+            mutable,
+        ) {
+            self.plugin_replace = !self.plugin_replace;
+        }
+        if ui.button(
+            canvas,
+            1308,
+            Rect::new(x + 24., 659., 118., 33.),
+            "刷新组件状态",
+            ButtonStyle::Secondary,
+            !busy && !self.demo,
+        ) {
+            self.submit("obs.plugin.status", json!({}));
+        }
+        if ui.button(
+            canvas,
+            1309,
+            Rect::new(x + 154., 659., 144., 33.),
+            "安装随包组件",
+            ButtonStyle::Primary,
+            mutable && self.plugin["can_install"] == true,
+        ) {
+            self.install_plugin();
+        }
+        if ui.button(
+            canvas,
+            1310,
+            Rect::new(x + w - 126., 659., 102., 33.),
+            "查看详情",
+            ButtonStyle::Quiet,
+            true,
+        ) {
+            self.component_details("obs.plugin.status", &self.plugin.clone());
+        }
     }
 
     fn advanced_page(&mut self, canvas: &mut Canvas<'_>, ui: &mut Ui, x: f32, w: f32, height: f32) {
@@ -3729,8 +4368,9 @@ impl Desktop {
             ) {
                 match serde_json::from_str::<Value>(&self.advanced_args) {
                     Ok(args) if args.is_object() => {
-                        self.advanced_pending = operation.name.into();
-                        self.submit(operation.name, args);
+                        if self.submit_cleanup(operation.name, args, None) {
+                            self.advanced_pending = operation.name.into();
+                        }
                     }
                     _ => self.notice("请提供一个完整的 JSON 对象作为参数。", false),
                 }
@@ -4389,8 +5029,26 @@ fn action_label(method: &str) -> &str {
         "rtc.preview.stop" => "关闭对方画面预览",
         "rtc.local.preview" => "预览本机 OBS 画面",
         "rtc.local.preview.stop" => "关闭本机 OBS 预览",
-        "updates.check" => "检查 GitHub 最新版本",
+        "updates.check" => "检查最新稳定版本",
+        "updates.status" => "查看更新状态",
+        "updates.download" => "下载应用更新",
+        "updates.apply" => "应用更新并退出",
+        "obs.plugin.status" => "查看 OBS 插件文件状态",
+        "obs.plugin.install" => "安装 OBS PK 插件文件",
         _ => method,
+    }
+}
+
+fn plugin_status_label(plugin: &Value, restart_required: bool) -> &'static str {
+    if plugin["state"] == "needs_restart" || (restart_required && plugin["installed"] == true) {
+        "插件文件已安装 · 请重启 OBS 后使用"
+    } else {
+        match plugin["state"].as_str().unwrap_or("") {
+            "installed" => "插件文件已安装 · OBS 加载状态未检查",
+            "not_installed" => "尚未安装 OBS PK 插件",
+            "unavailable" => "当前随包组件不可用",
+            _ => "正在读取组件文件状态…",
+        }
     }
 }
 
@@ -4415,6 +5073,15 @@ fn demo_response(method: &str) -> Result<Value, String> {
             json!([{"id":371,"name":"科技人文","parent_name":"知识"},{"id":21,"name":"日常分享","parent_name":"生活"}]),
         ),
         "obs.status" => Ok(json!({"connected":true,"outputActive":false})),
+        "updates.status" => Ok(json!({
+            "phase":"idle","current":env!("CARGO_PKG_VERSION"),
+            "installation":{"kind":"demo"},"update_available":false,
+            "can_download":false,"can_apply":false,"progress":0
+        })),
+        "obs.plugin.status" => Ok(json!({
+            "state":"unavailable","installed":false,"verified":false,"can_install":false,
+            "restart_required":false,"message":"演示模式不会检查或修改实际 OBS 插件文件。"
+        })),
         "pk.status" => Ok(json!({"state":"准备连接"})),
         "area.list" => Ok(
             json!({"area_v1_info":[{"id":11,"name":"知识","list":[{"id":371,"name":"科技人文"},{"id":377,"name":"职业技能"}]},{"id":1,"name":"生活","list":[{"id":21,"name":"日常分享"}]}]}),
@@ -4429,6 +5096,279 @@ fn demo_response(method: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn component_fixture(
+        demo: bool,
+        read_only: bool,
+    ) -> (Desktop, Receiver<Request>, Sender<Response>) {
+        let (tx, requests) = mpsc::channel();
+        let (responses, rx) = mpsc::channel();
+        (Desktop::new(tx, rx, demo, read_only), requests, responses)
+    }
+
+    fn component_reply(
+        desktop: &mut Desktop,
+        responses: &Sender<Response>,
+        method: &str,
+        value: Value,
+    ) {
+        responses
+            .send(Response {
+                method: method.into(),
+                result: Ok(value),
+            })
+            .unwrap();
+        desktop.receive();
+    }
+
+    #[test]
+    fn startup_version_check_runs_once_only_when_enabled_and_allowed() {
+        for demo in [false, true] {
+            for read_only in [false, true] {
+                for no_update in [false, true] {
+                    for enabled in [false, true] {
+                        let (mut desktop, requests, responses) = component_fixture(demo, read_only);
+                        desktop.no_update = no_update;
+                        desktop.config = json!({"update_check":enabled});
+                        desktop.load_config();
+                        desktop.tick();
+                        let expected = enabled && !demo && !read_only && !no_update;
+                        let queued: Vec<_> =
+                            requests.try_iter().map(|request| request.method).collect();
+                        assert_eq!(
+                            queued,
+                            if expected {
+                                vec!["updates.check"]
+                            } else {
+                                vec![]
+                            }
+                        );
+                        if expected {
+                            component_reply(
+                                &mut desktop,
+                                &responses,
+                                "updates.check",
+                                json!({"phase":"up_to_date"}),
+                            );
+                        }
+                        desktop.tick();
+                        assert!(requests.try_recv().is_err());
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn component_page_reads_local_status_without_starting_network_checks_or_installs() {
+        for read_only in [false, true] {
+            let (mut desktop, requests, _) = component_fixture(false, read_only);
+            desktop.activate(Page::Components);
+            let queued: Vec<_> = requests.try_iter().map(|request| request.method).collect();
+            assert_eq!(queued, ["updates.status", "obs.plugin.status"]);
+        }
+        let (mut desktop, requests, _) = component_fixture(true, false);
+        desktop.activate(Page::Components);
+        assert!(requests.try_recv().is_err());
+        assert_eq!(desktop.updates["installation"]["kind"], "demo");
+        assert_eq!(desktop.plugin["can_install"], false);
+    }
+
+    #[test]
+    fn manual_check_remains_available_in_read_only_and_noupdate_mode() {
+        let (mut desktop, requests, _) = component_fixture(false, true);
+        desktop.no_update = true;
+        assert!(desktop.request_update("updates.check"));
+        assert_eq!(requests.try_recv().unwrap().method, "updates.check");
+        assert!(desktop.startup_update_handled);
+    }
+
+    #[test]
+    fn downloads_require_a_staged_identity_and_explicit_mutable_action() {
+        for (demo, read_only, allowed, staged) in [
+            (true, false, true, "checked-identity"),
+            (false, true, true, "checked-identity"),
+            (false, false, false, "checked-identity"),
+            (false, false, true, ""),
+        ] {
+            let (mut desktop, requests, _) = component_fixture(demo, read_only);
+            desktop.updates = json!({"can_download":allowed,"staged_id":staged});
+            assert!(!desktop.request_update("updates.download"));
+            assert!(requests.try_recv().is_err());
+        }
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        desktop.updates =
+            json!({"phase":"available","can_download":true,"staged_id":"version-and-digest"});
+        assert!(desktop.request_update("updates.download"));
+        let request = requests.try_recv().unwrap();
+        assert_eq!(request.method, "updates.download");
+        assert_eq!(
+            request.args,
+            json!({"staged_id":"version-and-digest","wait":false})
+        );
+        component_reply(
+            &mut desktop,
+            &responses,
+            "updates.download",
+            json!({"phase":"downloading","progress":35}),
+        );
+        desktop.startup_update_handled = true;
+        desktop.update_poll = Instant::now() - Duration::from_secs(2);
+        desktop.tick();
+        assert_eq!(requests.try_recv().unwrap().method, "updates.status");
+        component_reply(
+            &mut desktop,
+            &responses,
+            "updates.status",
+            json!({"phase":"downloaded","can_apply":true,"staged_id":"version-and-digest"}),
+        );
+        desktop.tick();
+        assert!(requests.try_recv().is_err());
+        assert!(!desktop.quit_requested);
+    }
+
+    #[test]
+    fn explicit_apply_freezes_further_ui_work_and_exits_only_after_success() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        desktop.updates =
+            json!({"phase":"downloaded","can_apply":true,"staged_id":"checked-identity"});
+        assert!(desktop.request_update("updates.apply"));
+        let request = requests.try_recv().unwrap();
+        assert_eq!(
+            request.args,
+            json!({"staged_id":"checked-identity","restart":true})
+        );
+        assert!(!desktop.submit_cleanup("room.get", json!({}), None));
+        assert!(requests.try_recv().is_err());
+        assert!(!desktop.quit_requested);
+        component_reply(
+            &mut desktop,
+            &responses,
+            "updates.apply",
+            json!({
+                "phase":"restart_pending","quit_requested":true,"exit_required":true,"restart_requested":true
+            }),
+        );
+        assert!(desktop.quit_requested);
+        assert!(!desktop.submit_cleanup("config.get", json!({}), None));
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn failed_apply_preserves_window_and_does_not_restart_retired_media() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        desktop.config = json!({"obs_auto_connect":true,"obs_link":true});
+        desktop.load_config();
+        desktop.startup_update_handled = true;
+        desktop.updates = json!({"can_apply":true,"staged_id":"checked-identity"});
+        assert!(desktop.request_update("updates.apply"));
+        requests.try_recv().unwrap();
+        component_reply(
+            &mut desktop,
+            &responses,
+            "updates.apply",
+            json!({
+                "ok":false,"status":"failed","phase":"failed","local_sessions_retired":true,
+                "error":"fixture helper could not start","quit_requested":true,"exit_required":true
+            }),
+        );
+        assert!(!desktop.quit_requested);
+        assert!(!desktop.update_apply_requested);
+        assert!(desktop.local_sessions_retired);
+        assert!(desktop.update_error.contains("helper could not start"));
+        assert!(!desktop.notice.as_ref().unwrap().1);
+        desktop.tick();
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn update_transport_failure_stops_polling_without_quitting() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        desktop.startup_update_handled = true;
+        desktop.updates = json!({"phase":"downloading"});
+        assert!(desktop.request_update("updates.status"));
+        requests.try_recv().unwrap();
+        responses
+            .send(Response {
+                method: "updates.status".into(),
+                result: Err("fixture status failure".into()),
+            })
+            .unwrap();
+        desktop.receive();
+        desktop.update_poll = Instant::now() - Duration::from_secs(2);
+        desktop.tick();
+        assert!(requests.try_recv().is_err());
+        assert!(!desktop.quit_requested);
+        assert_eq!(desktop.update_error, "fixture status failure");
+        assert!(desktop.request_update("updates.status"));
+        assert!(desktop.update_error.is_empty());
+    }
+
+    #[test]
+    fn plugin_install_preserves_files_unless_replacement_is_selected() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        desktop.plugin = json!({"state":"not_installed","can_install":true});
+        assert!(desktop.install_plugin());
+        assert_eq!(requests.try_recv().unwrap().args, json!({"replace":false}));
+        component_reply(
+            &mut desktop,
+            &responses,
+            "obs.plugin.install",
+            json!({
+                "state":"needs_restart","installed":true,"restart_required":true,"can_install":true
+            }),
+        );
+        assert!(desktop.plugin_restart_required);
+        desktop.plugin_replace = true;
+        assert!(desktop.install_plugin());
+        assert_eq!(requests.try_recv().unwrap().args, json!({"replace":true}));
+        assert!(!desktop.quit_requested);
+    }
+
+    #[test]
+    fn readonly_and_demo_reject_component_mutations_even_from_advanced_actions() {
+        for (demo, read_only) in [(true, false), (false, true)] {
+            let (mut desktop, requests, _) = component_fixture(demo, read_only);
+            desktop.plugin = json!({"can_install":true});
+            assert!(!desktop.install_plugin());
+            for method in ["updates.download", "updates.apply", "obs.plugin.install"] {
+                assert!(!desktop.submit_cleanup(method, json!({}), None));
+            }
+            assert!(requests.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn filesystem_plugin_status_does_not_claim_obs_loaded_the_plugin() {
+        let installed = json!({"state":"installed","installed":true,"restart_required":false});
+        assert!(plugin_status_label(&installed, false).contains("加载状态未检查"));
+        assert!(plugin_status_label(&installed, true).contains("请重启 OBS"));
+        assert_eq!(
+            plugin_status_label(&json!({"state":"not_installed","installed":false}), true),
+            "尚未安装 OBS PK 插件"
+        );
+        let (mut desktop, _, responses) = component_fixture(false, false);
+        desktop.plugin_restart_required = true;
+        component_reply(&mut desktop, &responses, "obs.plugin.status", installed);
+        assert!(desktop.plugin_restart_required);
+    }
+
+    #[test]
+    fn component_results_are_not_discarded_by_account_switch_generations() {
+        let (mut desktop, _, responses) = component_fixture(false, false);
+        desktop.account_context_seen = true;
+        desktop.account_generation = 12;
+        component_reply(
+            &mut desktop,
+            &responses,
+            "updates.check",
+            json!({
+                "phase":"available","update_available":true,"latest":"9.9.9","_context":{"generation":11}
+            }),
+        );
+        assert_eq!(desktop.updates["latest"], "9.9.9");
+        assert_eq!(desktop.account_generation, 12);
+    }
 
     #[test]
     fn reads_the_platform_area_v1_info_envelope() {

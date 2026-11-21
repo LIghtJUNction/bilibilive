@@ -27,7 +27,9 @@ protocol mappings should be credited without copying the restricted logo.
 
 ## User-visible feature matrix
 
-All paths below are relative to the audited upstream repository.
+Python package paths below are relative to the audited upstream `startlive/`
+directory. `StartLive.py`, `.github/` and `plugins/` paths are relative to the
+repository root.
 
 | Area | Upstream behavior to preserve | Evidence |
 |---|---|---|
@@ -54,10 +56,13 @@ All paths below are relative to the audited upstream repository.
 | OBS connection | Connect using host, port and password; auto-connect preference; clear saved settings | `core/workers/obs_ws/`, `PySide/window/stream_config.py` |
 | OBS automation | Apply `SetStreamServiceSettings`, optionally `StartStream`/`StopStream`, observe actual output status and reconnecting status | `core/workers/obs_ws/obs_daemon.py`, `PySide/window/stream_config.py` |
 | Local HTTP control | `POST /api/startLive` and `POST /api/stopLive`; configured with `--web.host` and `--web.port` | `PySide/web_server/__init__.py`, `StartLive.py` |
-| Tray/window | Single-instance activation, tray start/stop/account selection, minimize/restore and close handling | `PySide/classes/single_instance_window.py`, `PySide/window/main_window.py` |
+| Tray/window | Single-instance activation; tray restore, current-account label, start/stop and quit; close handling | `PySide/classes/single_instance_window.py`, `PySide/window/main_window.py` |
 | Preferences | None/system/custom proxy; custom font, tray icon/hint, background image/mode/blur/opacity; reset sections | `PySide/window/settings_page.py`, `core/app_state/__init__.py` |
 | Logging | View logs, open log directory, sanitize credentials and sensitive API fields | `PySide/widgets/log_viewer.py`, `core/log/` |
-| Updates/distribution | Package-manager-aware updates, CLI help/version, Windows/macOS installers and Linux package-manager use | `StartLive.py`, `core/runtime.py`, `PySide/updater/` |
+| Protocol profile refresh | Read cached constants, fetch the reference JSON, update request profiles and save the cache | `core/workers/const/const_update.py`, `PySide/window/main_window.py` |
+| Version notification | Check the latest GitHub release during UI setup and indicate a newer version in the title | `core/workers/const/version_checker.py`, `PySide/window/main_window.py` |
+| Application update | Package-manager-aware Velopack check, download/progress and apply/restart on supported installations | `StartLive.py`, `core/runtime.py`, `PySide/updater/` |
+| Installer and plugin distribution | Windows setup executable, macOS installer package, architecture-specific updates and native OBS plugin builds | `.github/workflows/release-package.yml`, `.github/actions/build-obs-pk/action.yml` |
 | Scene conversion | Discover LiveHime scene JSON, preview conversion, optional canvas override and scene-name prefix filtering, export an OBS scene collection | `core/config_conversion/livehime.py`, `PySide/window/config_conversion_dialog.py` |
 | Scene conversion safety | Read-only source; 32 MiB limit; UTF-8 BOM/UTF-16; finite numbers; allowlisted source/filter/transition IDs; warnings for unsupported plugins/missing assets | `core/config_conversion/livehime.py`, `core/constant/config_conversion.py` |
 | PK modes | Classic PK, video PK and video link | `core/constant/pk.py`, `PySide/window/pk_window.py` |
@@ -74,6 +79,36 @@ All paths below are relative to the audited upstream repository.
 | PK preview | Local and remote previews, crop in original-frame coordinates, asynchronous conversion, bounded buffers | `PySide/widgets/pk_media_view.py`, `pk_crop_selector.py`, `core/pk/video_frames.py` |
 | OBS PK plugin | Same-user local IPC; per-connection audio/video selection; 48 kHz stereo s16 PCM; NV12/BGRA shared-memory frames | `plugins/obs-startlive-pk/`, `core/pk/obs_transport.py`, `shared_video.py` |
 | Session teardown | Cancel outstanding jobs; retire invitation/round ownership; stop local capture/RTC on account change, room stop or window close | `PySide/controllers/pk/session_controller.py`, `rtc_lifecycle.py`, `PySide/window/pk_window.py` |
+
+Account switching belongs to the upstream menu bar's account menu, implemented
+by `PySide/widgets/sl_menu_bar.py`. The tray displays the selected account; it
+has no account-switch submenu in this audited revision. Bilibilive provides
+selection in its Accounts page and the corresponding shared operations.
+
+## Update triggers and compatibility choices
+
+The reference has three distinct update jobs. `ConstantUpdateWorker` changes
+the cached Bilibili protocol profile, including request headers and signing
+fields. `VersionCheckerWorker` checks release metadata and displays a version
+hint. UI setup starts these two jobs together, unless `--noupdate` suppresses
+that branch or its constants work was already completed.
+
+`VelopackUpdateController` starts separately through a one-second timer in the
+main-window constructor. Its worker skips package-managed and Linux installs;
+supported installations check for an application package, download it, quit
+the UI and apply the update. The reference's `--noupdate` branch does not
+control this separate timer. These triggers are visible in
+`PySide/window/main_window.py`, `PySide/updater/update_controller.py` and
+`PySide/updater/update_worker.py`.
+
+Bilibilive checks the stable application release once when the saved
+`update_check` preference permits it. `--noupdate` suppresses that launch's
+automatic check. Download and apply remain explicit operations; Cargo and AUR
+ownership is retained, and an installer package is applied only after its
+identity and contents are verified. Bilibili protocol profiles remain compiled
+and reviewed with the application source; the upstream remote constant-refresh
+mechanism is intentionally not reproduced. [UPDATES.md](UPDATES.md) describes
+the current user flow and installation-channel boundaries.
 
 The current upstream PK system spans roughly 12,000 lines across its core,
 worker and controller modules, plus the OBS capture plugin. Registering HTTP

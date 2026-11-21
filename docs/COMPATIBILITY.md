@@ -9,8 +9,32 @@ The [validation record](VALIDATION.md) distinguishes the final `ae04b164` native
 publication gate and installation-prefix checks from the earlier Linux window
 and media snapshot. Its linked receipts include dependency and source hashes,
 full-window screenshot hashes, background pixel checks and an isolated OBS 33
-module-load result. These local checks do not establish authenticated platform
-or two-party PK acceptance.
+module-load result. Later dependency receipts identify their own source and
+test scope. Authenticated platform and two-party PK acceptance remain separate
+requirements.
+
+## Desktop, updates and bundled components
+
+The default Cargo feature set includes the native zgpui GUI on Linux, macOS
+and Windows. The release workflow builds that default set for each platform.
+Linux uses X11/XWayland, Windows uses Win32, and macOS uses AppKit. The recorded
+window interaction and image checks were performed on Linux; macOS and Windows
+application-window and OBS-module runtime acceptance need their own receipts.
+
+| Capability | Current behavior | Verification boundary |
+|---|---|---|
+| Startup version notice | Once per ordinary GUI launch when `update_check` is enabled; `--noupdate`, demo and read-only startup skip it | Controller fixtures cover each gate and prevent repeated checks |
+| Installer update | Explicit check, staged download, progress, then explicit apply/restart for a recognized Velopack installation | Package identity and digest verification are required before applying; installed Windows/macOS upgrade behavior needs platform acceptance |
+| Package-manager update | Cargo and AUR retain ownership; the UI shows the corresponding manual command | The application never invokes system package-manager elevation |
+| Portable update | Release location and installation-channel guidance are displayed | An unrecognized or portable binary is not overwritten in place |
+| OBS component installation | Bounded local installation of a matching, verified bundle; replacement of existing files is opt-in | File presence is reported independently from OBS loading; OBS is restarted manually |
+| Native plugin packaging | Platform-native OBS module plus its matching release bundle | Each asset's build and load evidence must identify that platform and architecture |
+| Tray/account controls | Tray restores, starts/stops, displays the current account and quits; Accounts page selects accounts | The audited upstream account switch belongs to its menu bar, not its tray |
+
+[UPDATES.md](UPDATES.md) documents the available operations and user flow.
+Background version checking never downloads an application package or installs
+an OBS plugin. Read-only mode permits an explicit version check and local
+status reads; demo mode uses offline component data.
 
 ## Bilibili account and broadcast control
 
@@ -115,6 +139,14 @@ two-party broadcast, capture and media-exchange acceptance run.
 
 ## Deliberate behavioral differences
 
+- Bilibili protocol constants and request profiles are compiled and reviewed
+  with the application. StartLive's separate remote constant-refresh worker
+  is not implemented. Software version checking and verified application
+  packages provide the update path described in [UPDATES.md](UPDATES.md).
+- Application downloads and apply/restart are separate explicit actions.
+  `--noupdate` suppresses this launch's automatic software check; the audited
+  upstream flag suppresses its constants/version branch while its Velopack
+  controller starts independently.
 - Looking up an existing stream address uses `FetchWebUpStreamAddr` and does
   not silently start a room. Current StartLive refreshes the key of an already
   live room through another `startLive` call. Bilibili may deprecate the lookup

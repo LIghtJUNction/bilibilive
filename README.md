@@ -2,7 +2,7 @@
 
 **用 Rust 构建的哔哩哔哩直播控制台。** 原生桌面、命令行、MCP 和 zuse 使用同一套账号、直播间与媒体操作。桌面界面基于 [zgpui](https://github.com/LIghtJUNction/zgpui)，命令行使用 [zclap](https://github.com/LIghtJUNction/zclap)，MCP 使用 [zmcpio](https://github.com/LIghtJUNction/zmcpio)，脚本由 [zuse](https://github.com/LIghtJUNction/zuse) 的原生解析器处理。
 
-[安装](#安装) · [命令行](#命令行) · [MCP](#mcp) · [zuse](#zuse-原生脚本) · [兼容范围](docs/COMPATIBILITY.md) · [StartLive 功能审计](docs/STARTLIVE_AUDIT.md)
+[安装](#安装) · [更新与组件](docs/UPDATES.md) · [命令行](#命令行) · [MCP](#mcp) · [zuse](#zuse-原生脚本) · [兼容范围](docs/COMPATIBILITY.md) · [StartLive 功能审计](docs/STARTLIVE_AUDIT.md)
 
 ## 功能与入口
 
@@ -20,10 +20,13 @@ bilibilive 以 [Radekyspec/StartLive](https://github.com/Radekyspec/StartLive) �
 | 配置转换 | 发现直播姬配置，导出新的 OBS 场景集合，保留输入文件并报告不支持的来源 |
 | 自动化 | JSON 命令、stdio／本地 HTTP MCP、zuse 函数和模块、整段脚本预检与有界执行 |
 | 桌面 | 深浅主题、系统字体、本地背景图片及模糊／透明度、系统托盘、关闭到托盘、同配置单实例唤醒 |
+| 更新与组件 | 启动版本提示、显式下载与应用、安装来源识别；校验并安装随包 OBS 插件，保留包管理器的更新职责 |
 
 桌面主界面保留直播时常用的操作。**偏好设置 → 完整操作**提供同一份操作目录的高级入口，包含配置转换、连续 PK、媒体发布／接收以及其他已注册操作。每个操作都能查看参数定义，并返回结构化结果。
 
 封面页显示当前封面，也可读取本地 PNG、JPEG 或 WebP。拖动或缩放选区后，程序在后台导出 704 × 396 PNG，再调用同一上传接口；本地原图保持不变。**偏好设置 → 字体、背景与托盘**管理外观和窗口行为。Linux 托盘使用桌面的 StatusNotifier 服务；桌面不提供该服务时，窗口仍可独立使用。
+
+**偏好设置 → 更新与组件**显示当前版本、安装来源和 OBS 插件文件状态。版本检查只获取发布信息；下载和应用各有独立按钮。应用更新会退出并重新打开窗口，先释放本地媒体连接；正在运行的 OBS 和 Bilibili 直播间保持原状态。Cargo、AUR 与便携版本显示各自的更新方法，安装器管理的版本才会开放自动应用入口。
 
 ## 安装
 
@@ -59,13 +62,25 @@ OBS 的 PK 采集插件单独打包为 `bilibilive-obs-plugin` 和 `bilibilive-o
 
 ### GitHub Releases 与源码
 
-[GitHub Releases](https://github.com/LIghtJUNction/bilibilive/releases)提供正式构建及其 SHA-256 文件。Linux、macOS 和 Windows 的构建由同一个正式发布工作流产生；具体版本实际提供的平台以该版本资产列表为准。
+[GitHub Releases](https://github.com/LIghtJUNction/bilibilive/releases)提供正式构建及其 SHA-256 文件。Linux、macOS 和 Windows 的构建默认包含原生 GUI；Linux 使用 X11／XWayland，Windows 使用 Win32，macOS 使用 AppKit。具体版本的架构、便携归档和安装器以该版本资产列表为准。已有窗口运行验收来自 Linux；macOS 和 Windows 的交互与 OBS 加载验收单独记录，详见[兼容说明](docs/COMPATIBILITY.md)。
 
 ```sh
 git clone https://github.com/LIghtJUNction/bilibilive.git
 cd bilibilive
 cargo build --release --locked
 ```
+
+### 更新设置
+
+新配置默认在普通 GUI 启动时检查一次稳定版本；已有配置中关闭的 `update_check` 会继续保留。可在更新页关闭该偏好，或仅为本次启动传入 `--noupdate`：
+
+```sh
+bilibilive gui --noupdate
+bilibilive call updates.check --args '{}'
+bilibilive call obs.plugin.status --args '{}'
+```
+
+只读模式保留手动版本检查；演示模式使用离线数据。两者都不会下载、应用更新或安装插件。安装器更新和共享会话的具体命令见[更新与组件说明](docs/UPDATES.md)。
 
 ## 开始直播
 
@@ -158,6 +173,8 @@ bilibilive obs stop
 
 插件沿用 StartLive 的本机媒体协议和 OBS 输出标识，便于协议互通。如果已安装原 StartLive OBS 插件，请先停用该插件，再启用 bilibilive 版本，避免同一 OBS 进程重复注册输出和占用同一采集通道。
 
+发行包携带经过校验的匹配组件时，更新与组件页可将它安装到 OBS 插件目录。默认保留已有文件，替换需要单独开启；安装成功后手动重启 OBS。组件状态检查报告文件与校验结果，OBS 是否加载该模块仍以 OBS 日志为准。缺少随包组件的 Cargo 构建会显示具体原因；Arch 用户可直接安装对应的 AUR 插件包。
+
 ### 场景转换
 
 ```sh
@@ -222,7 +239,7 @@ timer.stop()
 
 开发清单中的 Project Z 依赖使用各自 GitHub 仓库的默认分支，不固定 tag、revision 或 registry 版本。`Cargo.lock` 保存这一次验证采用的精确提交；下一轮更新重新获取当前分支头。
 
-本次锁文件采用 zconv 0.4.1、zcall 0.4.1、zmcpio 0.5.0、zuse-computer 0.4.0 和 zgpui 0.1.6 的公开源码。全部内部 Git 提交与 16 个外部直接依赖的稳定版本检查记录在[依赖收据](docs/evidence/dependencies-2026-11-21.json)中。
+当前开发锁采用 zconv 0.4.1、zcall 0.4.1、zmcpio 0.5.0、zuse-computer 0.4.2 和 zgpui 0.1.6 的公开源码。Zuse 0.4.2 的定向更新、精确公开提交与受影响检查记录在[更新收据](docs/evidence/dependencies-zuse-0.4.2.json)中。早期 16 个外部直接依赖和初版内部锁的检查保留在[原始依赖收据](docs/evidence/dependencies-2026-11-21.json)；正式 tag 与各次验收记录继续使用当时的不可变锁文件。
 
 ```sh
 python scripts/update-dependencies.py
@@ -249,9 +266,9 @@ bilibilive gui --demo
 
 普通验证使用协议夹具和本地测试，不启动真实直播、发送真实弹幕或发起真实 PK。`gui --demo` 使用标注为 DEMO 的内置数据，不访问账号服务。发布工作流仅由 tag 或手动触发；日常提交不触发远程常规 CI。
 
-2026-11-21 的最终源码提交 `ae04b164` 已通过 Linux 原生发布验证和独立安装前缀验收。无桌面测试、最终发布构建，以及此前原生窗口和媒体探测分别注明各自的快照。每项检查对应的锁文件摘要、命令和截图摘要记录在[验证收据](docs/evidence/validation-2026-11-21.json)中，详细范围见[验收说明](docs/VALIDATION.md)。
+初版源码提交 `ae04b164` 于 2026-11-21 通过 Linux 原生发布验证和独立安装前缀验收。下表保留这次发布及其早期窗口／媒体快照的历史结果，不将这些计数延伸到后续功能。每项检查对应的锁文件摘要、命令和截图摘要记录在[验证收据](docs/evidence/validation-2026-11-21.json)中，详细范围见[验收说明](docs/VALIDATION.md)。
 
-| 检查 | 本次结果 | 覆盖范围 |
+| 检查 | 历史结果 | 覆盖范围 |
 | --- | --- | --- |
 | 更新依赖后的无桌面 Rust 测试 | 57 项库测试、2 项 CLI 测试通过 | 包含 5 项 zuse host 测试、共享调用、账号上下文及真实本地 HTTP／OBS 协议夹具；本次未出现权限错误 |
 | 最终 Linux 原生发布验证 | `validate.py --release --obs-plugin` 通过；65 项库测试、2 项 CLI 测试通过 | `ae04b164`：全部特性检查与测试、无桌面检查、默认原生 release 构建和 OBS 插件构建 |

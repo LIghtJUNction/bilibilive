@@ -7,6 +7,31 @@ lock and source digests, screenshot hashes and the four background samples.
 The [dependency receipt](evidence/dependencies-2026-11-21.json) records the public
 Project Z default heads and the stable versions returned by crates.io.
 
+## Update and component GUI fixtures
+
+The GUI update work based on `6a680149` passed
+`cargo test --locked --lib gui::tests` in the Linux sandbox: 21 tests, including
+11 new update/component controller fixtures. The default GUI feature compiled
+and linked the real zgpui native C/OpenGL backend and tray implementation. The
+tests exercised request/response state without opening a window or performing
+an actual download, installation, OBS action or broadcast. The
+[GUI receipt](evidence/gui-components-2026-11-21.json) identifies the tested
+source hash and dependency lock.
+
+The new cases cover one startup check, saved/command-line suppression,
+read-only and demo boundaries, staged update identity, explicit download and
+apply, progress polling, failed apply without quitting or reconnecting retired
+media, and opt-in plugin replacement. File-installation labels explicitly
+distinguish the state from OBS module loading.
+
+The subsequent lifecycle hook uses the integrated App's update-exit signal for
+HTTP/MCP-triggered restarts and stops unstarted UI requests during shutdown.
+That hook, the final plugin-status freshness guard and main's startup-hook /
+argument-parsing integration require the merged runtime gate. The earlier 21
+tests are not attributed to these later changes. The new page also requires
+its own native window review; the historical screenshots below retain their
+original snapshot attribution.
+
 ## Final native publication gate
 
 Commit `ae04b1640ab3a78bba3a5a000c1eea551a55c5dc`, using the final dependency

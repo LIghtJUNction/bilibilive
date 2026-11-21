@@ -506,7 +506,11 @@ fn run() -> Result<(), String> {
                     flags.contains("compat"),
                 )?;
             }
-            return bilibilive::gui::run(app, flags.contains("demo"));
+            return bilibilive::gui::run_with_options(
+                app,
+                flags.contains("demo"),
+                flags.contains("noupdate"),
+            );
         }
         #[cfg(not(feature = "gui"))]
         return Err(
@@ -718,6 +722,7 @@ fn run() -> Result<(), String> {
 }
 
 fn main() -> ExitCode {
+    bilibilive::updater::startup_hooks();
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
@@ -734,6 +739,41 @@ mod tests {
         io::{BufRead, BufReader, Write},
         net::TcpListener,
     };
+
+    #[test]
+    fn gui_restart_arguments_keep_config_dir_and_disable_the_next_startup_check() {
+        for words in [
+            vec!["gui", "--noupdate", "--config-dir", "/tmp/a profile"],
+            vec!["--noupdate", "--config-dir", "/tmp/a profile", "gui"],
+        ] {
+            let argv = words
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect::<Vec<_>>();
+            let mut parser = CLI.parse(&argv);
+            let mut disabled = false;
+            let mut directory = String::new();
+            let mut command = String::new();
+            while let Some(event) = parser.next().unwrap() {
+                match event {
+                    Event::Flag { arg: "noupdate" } => disabled = true,
+                    Event::Value {
+                        arg: "config-dir",
+                        value,
+                    } => directory = value.into(),
+                    Event::Value {
+                        arg: "words",
+                        value,
+                    } => command = value.into(),
+                    _ => (),
+                }
+            }
+            parser.finish().unwrap();
+            assert!(disabled);
+            assert_eq!(directory, "/tmp/a profile");
+            assert_eq!(command, "gui");
+        }
+    }
 
     #[test]
     fn endpoint_accepts_only_literal_loopback_origins() {
