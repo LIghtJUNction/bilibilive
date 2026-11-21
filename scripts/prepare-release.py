@@ -121,6 +121,20 @@ def crate_archive(name: str, version: str, cache: Path) -> Path:
     return path
 
 
+def publication_files(name: str, output: str) -> set[str]:
+    listed = set(output.splitlines())
+    if not listed or any(
+        not Path(path).parts or Path(path).is_absolute() or ".." in Path(path).parts
+        for path in listed
+    ):
+        raise RuntimeError(f"{name}: Cargo returned an invalid publication file list")
+    # Cargo can list checkout administration files; only the root .git is metadata.
+    listed = {path for path in listed if Path(path).parts[:1] != (".git",)}
+    if not listed:
+        raise RuntimeError(f"{name}: Cargo returned an invalid publication file list")
+    return listed
+
+
 def verify_dependency(package: dict, versions: dict, cache: Path) -> dict:
     name, version = package["name"], package["version"]
     source = package["source"]
@@ -132,9 +146,7 @@ def verify_dependency(package: dict, versions: dict, cache: Path) -> dict:
         raise RuntimeError(f"{name}: Cargo's dependency checkout does not identify the locked Git commit")
     if run("git", "status", "--porcelain", "--untracked-files=no", cwd=source_dir).strip():
         raise RuntimeError(f"{name}: locked dependency checkout contains modified tracked files")
-    listed = set(run("cargo", "package", "--list", "--allow-dirty", "--manifest-path", str(source_dir / "Cargo.toml"), cwd=source_dir).splitlines())
-    if not listed or any(Path(path).is_absolute() or ".." in Path(path).parts for path in listed):
-        raise RuntimeError(f"{name}: Cargo returned an invalid publication file list")
+    listed = publication_files(name, run("cargo", "package", "--list", "--allow-dirty", "--manifest-path", str(source_dir / "Cargo.toml"), cwd=source_dir))
     archive = crate_archive(name, version, cache)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     prefix = f"{name}-{version}/"
