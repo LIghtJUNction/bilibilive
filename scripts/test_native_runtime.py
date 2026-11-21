@@ -4,8 +4,11 @@ import hashlib
 import importlib.util
 import io
 import json
+import ntpath
 from pathlib import Path
 import os
+import posixpath
+import re
 import struct
 import subprocess
 import sys
@@ -160,6 +163,29 @@ class NativePayloadTests(unittest.TestCase):
         with patch.object(native,"run",side_effect=imports):
             native.windows_dependencies([app],out,[prefix],msys)
         self.assertEqual((out/"runtime/lib/codec.dll").read_bytes(),b"current official source")
+
+    def test_openssl_config_relative_path_excludes_commit_and_cache_names(self):
+        cache=self.root/"effects-cache"
+        source=cache/"sources/openssl-2f4e3a5fec053940"
+        source.mkdir(parents=True)
+        plan={"sources":{"datachannel":{"commit":"a"*40},"openssl":{"commit":"2f4e3a5fec05394068cfa7379890ab552483a8a6"}}}
+        for target in ("x86_64-pc-windows-msvc","aarch64-apple-darwin","x86_64-apple-darwin"):
+            with self.subTest(target=target),patch.object(native,"source_checkout",return_value=source) as checkout,\
+                    patch.object(native,"run") as run,patch.object(native,"cmake_build"):
+                prefix,receipt=native.prepare_datachannel(plan,target,cache,3)
+                configure=run.call_args_list[0]
+                cwd=configure.kwargs["cwd"]
+                self.assertEqual(configure.args[0][1],source/"Configure")
+                self.assertEqual(prefix,cache/"build"/target/"datachannel-prefix")
+                self.assertEqual(receipt["openssl_build"]["strategy"],"nested-out-of-tree")
+                # Mirror upstream's actual unanchored substitution for both
+                # path dialects. Only the .ec filename suffix may match.
+                for path_module in (posixpath,ntpath):
+                    config=path_module.relpath(str(source/"crypto/err/openssl.ec"),str(cwd))
+                    state=path_module.relpath(str(source/"crypto/err/openssl.txt"),str(cwd))
+                    self.assertEqual(re.sub(r".ec",".txt",config,count=1),state)
+                self.assertEqual(checkout.call_args_list[-1].args,("openssl",plan["sources"]["openssl"],cache))
+                self.assertEqual(sum(call.args[0]=="openssl" for call in checkout.call_args_list),2)
 
     def test_visual_cpp_redistributable_is_not_mislabeled_as_windows_os(self):
         msys=self.root/"msys";out=self.root/"payload";system=self.root/"Windows"

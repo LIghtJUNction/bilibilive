@@ -579,7 +579,12 @@ def prepare_datachannel(plan: dict, target: str, cache: Path, jobs: int) -> tupl
     prefix=build / "datachannel-prefix"
     options=["-DBUILD_SHARED_LIBS=ON","-DBUILD_SHARED_DEPS_LIBS=OFF","-DNO_MEDIA=OFF","-DNO_TESTS=ON","-DNO_EXAMPLES=ON","-DNO_WEBSOCKET=ON","-DOPENSSL_USE_STATIC_LIBS=TRUE","-DCMAKE_POLICY_DEFAULT_CMP0091=NEW","-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]
     crypto = source_checkout("openssl",plan["sources"]["openssl"],cache)
-    crypto_build=build/"openssl";crypto_build.mkdir(parents=True,exist_ok=True)
+    # OpenSSL 4.1's mkerr.pl replaces the first /.ec/ in its config path.
+    # A sibling build exposes the checkout SHA (which can contain "fec") to
+    # that substitution. Keep this out-of-tree build below the verified
+    # source so Configure's relative source path is always ../.. on both
+    # Windows and macOS, regardless of cache or commit directory names.
+    crypto_build=crypto/"_bilibilive-build"/target;crypto_build.mkdir(parents=True,exist_ok=True)
     crypto_prefix=build/"openssl-prefix"
     architecture="VC-WIN64A" if "windows" in target else "darwin64-"+TARGETS[target][1]+"-cc"
     env={"MACOSX_DEPLOYMENT_TARGET":"13.0"} if "darwin" in target else {}
@@ -587,13 +592,19 @@ def prepare_datachannel(plan: dict, target: str, cache: Path, jobs: int) -> tupl
     make="nmake" if "windows" in target else "make"
     run([make,*([] if make=="nmake" else [f"-j{jobs}"])],cwd=crypto_build,env=env,timeout=3600,log=logs/"openssl-build.log")
     run([make,"install_sw"],cwd=crypto_build,env=env,timeout=300,log=logs/"openssl-install.log")
+    # Generated build files are untracked; the official source must remain
+    # at the same complete commit with every tracked byte unchanged.
+    source_checkout("openssl",plan["sources"]["openssl"],cache)
     options += [f"-DOPENSSL_ROOT_DIR={crypto_prefix}","-DCMAKE_POSITION_INDEPENDENT_CODE=ON"]
     if "windows" in target:
         options += ["-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"]
     else:
         options += [f"-DCMAKE_OSX_ARCHITECTURES={TARGETS[target][1]}","-DCMAKE_OSX_DEPLOYMENT_TARGET=13.0"]
     cmake_build(source,build/"datachannel",prefix,options,logs,"datachannel",jobs,env=env)
-    return prefix,{"source":plan["sources"]["datachannel"],"openssl":plan["sources"]["openssl"],"media":True,"static_dependencies":True}
+    return prefix,{"source":plan["sources"]["datachannel"],"openssl":plan["sources"]["openssl"],
+                   "openssl_build":{"strategy":"nested-out-of-tree","directory":str(crypto_build),
+                                    "source_relative":os.path.relpath(crypto,crypto_build)},
+                   "media":True,"static_dependencies":True}
 
 
 def inspect_binary(path: Path, target: str) -> dict:
