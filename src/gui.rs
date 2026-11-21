@@ -915,6 +915,15 @@ impl Desktop {
                                     == Some(false)
                                 {
                                     self.notice("房间已开播，但平台没有提供所选推流协议。请切换协议后重新获取地址。", false);
+                                } else if !crate::app::is_success(&self.stream) {
+                                    self.notice(
+                                        if self.stream["room_remains_live"] == true {
+                                            "直播间已开播，但 OBS 自动推流失败。请检查 OBS 的连接和推流状态，再手动处理；无需重复开播。"
+                                        } else {
+                                            "开播或推流地址请求未完成，请在完整操作中查看详细结果。"
+                                        },
+                                        false,
+                                    );
                                 } else {
                                     self.notice(
                                         if method == "live.start" {
@@ -4516,6 +4525,35 @@ mod tests {
         desktop.receive();
         assert_eq!(desktop.title, "Unsaved draft");
         assert_eq!(desktop.room["title"], "Published title");
+    }
+
+    #[test]
+    fn obs_start_partial_failure_is_visible_without_stopping_or_restarting_the_room() {
+        let (tx, requests) = mpsc::channel();
+        let (responses, rx) = mpsc::channel();
+        let mut desktop = Desktop::new(tx, rx, false, false);
+        responses
+            .send(Response {
+                method: "live.start".into(),
+                result: Ok(json!({
+                    "ok": false,
+                    "status": "partial_failure",
+                    "room_id": "123",
+                    "room_remains_live": true,
+                    "obs": {"ok": false, "error": "OBS fixture failure"},
+                })),
+            })
+            .unwrap();
+        desktop.receive();
+        assert_eq!(desktop.stream["room_remains_live"], true);
+        let (message, success, _) = desktop.notice.as_ref().unwrap();
+        assert!(!success);
+        assert!(message.contains("直播间已开播"));
+        assert!(message.contains("OBS 自动推流失败"));
+        assert!(message.contains("手动处理"));
+        assert_eq!(desktop.activity, vec![("开始直播".into(), false)]);
+        let requested: Vec<_> = requests.try_iter().map(|request| request.method).collect();
+        assert_eq!(requested, ["room.get"]);
     }
 
     #[test]

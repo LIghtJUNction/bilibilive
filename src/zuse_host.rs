@@ -600,6 +600,11 @@ mod tests {
                 "face.poll()",
                 json!({"status":"expired_or_failed","verified":false,"token":"fixture-secret"}),
             ),
+            (
+                "live.start",
+                "live.start(area_id=371)",
+                json!({"ok":false,"status":"partial_failure","room_remains_live":true,"obs":{"ok":false,"error":"OBS fixture failure"},"key":"fixture-secret"}),
+            ),
         ] {
             let fixture = Fixture::new();
             let source = format!(

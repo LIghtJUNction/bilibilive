@@ -589,13 +589,8 @@ impl App {
                 }
                 let mut result = client.call(method, args)?;
                 if method == "live.start" && result["status"] == "live" && cfg.obs_auto_start {
-                    match self.configure_obs_stream(&result, true) {
-                        Ok(obs) => result["obs"] = obs,
-                        Err(error) => {
-                            result["obs"] =
-                                json!({"ok":false,"error":error,"room_remains_live":true})
-                        }
-                    }
+                    let obs = self.configure_obs_stream(&result, true);
+                    record_obs_start_result(&mut result, obs);
                 }
                 Ok(result)
             }
@@ -1273,6 +1268,19 @@ pub fn redact(value: &mut Value) {
     }
 }
 
+fn record_obs_start_result(stream: &mut Value, result: Result<Value, String>) {
+    match result {
+        Ok(obs) => stream["obs"] = obs,
+        Err(error) => {
+            stream["ok"] = false.into();
+            stream["status"] = "partial_failure".into();
+            stream["room_remains_live"] = true.into();
+            stream["message"] = "The room is live, but automatic OBS streaming failed. Check OBS connection and output status, then handle streaming manually; do not repeat the room start.".into();
+            stream["obs"] = json!({"ok":false,"error":error,"room_remains_live":true});
+        }
+    }
+}
+
 pub fn is_success(value: &Value) -> bool {
     value.get("ok") != Some(&Value::Bool(false))
         && !matches!(
@@ -1287,6 +1295,43 @@ pub fn is_success(value: &Value) -> bool {
                     | "expired_or_failed"
             )
         )
+}
+
+#[cfg(test)]
+mod broadcast_result_tests {
+    use super::*;
+
+    #[test]
+    fn obs_start_failure_reports_partial_success_without_losing_live_room_state() {
+        let started = json!({
+            "status": "live",
+            "room_id": "123",
+            "protocol": "rtmp",
+            "server": "rtmp://fixture.invalid/live",
+            "key": "fixture-stream-secret",
+        });
+        let mut failed = started.clone();
+        record_obs_start_result(&mut failed, Err("OBS fixture failure".into()));
+        assert!(!is_success(&failed));
+        assert_eq!(failed["ok"], false);
+        assert_eq!(failed["status"], "partial_failure");
+        assert_eq!(failed["room_remains_live"], true);
+        for field in ["room_id", "protocol", "server", "key"] {
+            assert_eq!(failed[field], started[field]);
+        }
+        assert_eq!(failed["obs"]["error"], "OBS fixture failure");
+        assert_eq!(failed["obs"]["room_remains_live"], true);
+        assert!(failed["message"].as_str().unwrap().contains("manually"));
+        redact(&mut failed);
+        assert!(!failed.to_string().contains("fixture-stream-secret"));
+
+        let mut complete = started;
+        record_obs_start_result(&mut complete, Ok(json!({"configured":true,"started":true})));
+        assert!(is_success(&complete));
+        assert_eq!(complete["status"], "live");
+        assert_eq!(complete["obs"]["started"], true);
+        assert!(complete.get("room_remains_live").is_none());
+    }
 }
 
 #[cfg(test)]
