@@ -308,6 +308,8 @@ jobs:
           path: |
             ${{ runner.temp }}/bilibilive-native-cache/preparation-*.json
             ${{ runner.temp }}/bilibilive-native-cache/logs/**/*.log
+            ${{ runner.temp }}/bilibilive-native-cache/validation/**/*.log
+            ${{ runner.temp }}/bilibilive-native-cache/validation/**/verification.json
             ${{ runner.temp }}/bilibilive-update-probe/verification.json
             ${{ runner.temp }}/bilibilive-update-probe/logs/*.log
             dist/*-smoke*.json

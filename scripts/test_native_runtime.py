@@ -215,6 +215,30 @@ class NativePayloadTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError,"Unresolved non-system runtime DLL"):
                 native.windows_dependencies([app],out,[],msys)
 
+    def test_libvpl_does_not_patch_an_unreviewed_legacy_header(self):
+        source=self.root/"source";output=self.root/"build-copy"
+        header=source/"libvpl/src/windows/mfx_dispatcher_defs.h"
+        header.parent.mkdir(parents=True)
+        original=b"#if _MSC_VER < 1400\n/* different upstream implementation */\n#endif\n"
+        header.write_bytes(original)
+        with self.assertRaisesRegex(RuntimeError,"Unreviewed oneVPL"):
+            native.prepare_libvpl_mingw_source(source,output)
+        self.assertEqual(header.read_bytes(),original)
+        self.assertFalse(output.exists())
+
+    def test_libvpl_already_fixed_upstream_is_built_without_a_copy(self):
+        source=self.root/"source";output=self.root/"build-copy"
+        header=source/"libvpl/src/windows/mfx_dispatcher_defs.h"
+        header.parent.mkdir(parents=True)
+        original=b"#if defined(_MSC_VER) && _MSC_VER < 1400\r\n#endif\r\n"
+        header.write_bytes(original)
+        actual,receipt=native.prepare_libvpl_mingw_source(source,output)
+        self.assertEqual(actual,source)
+        self.assertEqual(receipt["status"],"already-fixed-upstream")
+        self.assertFalse(receipt["source_cache_modified"])
+        self.assertEqual(header.read_bytes(),original)
+        self.assertFalse(output.exists())
+
     def test_process_timeout_is_bounded(self):
         begin=time.monotonic()
         with self.assertRaises(subprocess.TimeoutExpired):

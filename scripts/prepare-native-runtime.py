@@ -45,7 +45,9 @@ REPOS = {"obs": "https://github.com/obsproject/obs-studio.git",
          "x264": "https://code.videolan.org/videolan/x264.git",
          "svtav1": "https://gitlab.com/AOMediaCodec/SVT-AV1.git",
          "opus": "https://github.com/xiph/opus.git",
-         "dav1d": "https://code.videolan.org/videolan/dav1d.git",
+         # VideoLAN's official read-only mirror keeps the same tags and commits
+         # available when its primary GitLab host cannot be reached by a runner.
+         "dav1d": "https://github.com/videolan/dav1d.git",
          "sdl2": "https://github.com/libsdl-org/SDL.git",
          "nvcodec": "https://github.com/FFmpeg/nv-codec-headers.git",
          "amf": "https://github.com/GPUOpen-LibrariesAndSDKs/AMF.git",
@@ -507,6 +509,36 @@ def verify_nvcodec_package(source: Path, prefix: Path, reported_version: str) ->
     return {"version":reported_version,"pkg_config_sha256":sha(installed),"source_pkg_config_sha256":sha(template)}
 
 
+def prepare_libvpl_mingw_source(source: Path, output: Path) -> tuple[Path, dict]:
+    """Backport Intel's reviewed MinGW guard fix without changing the Git cache."""
+    relative=Path("libvpl/src/windows/mfx_dispatcher_defs.h")
+    header=source/relative
+    original=header.read_bytes()
+    canonical=original.replace(b"\r\n",b"\n")
+    old=b"#if _MSC_VER < 1400"
+    fixed=b"#if defined(_MSC_VER) && _MSC_VER < 1400"
+    upstream="412c5cffe3022d5ebb8a955c3b30afe7bd2e3929"
+    identity={"file":relative.as_posix(),"upstream_fix_commit":upstream,
+              "source_header_sha256":hashlib.sha256(original).hexdigest()}
+    if canonical.count(fixed)==1 and old not in canonical:
+        return source,{**identity,"status":"already-fixed-upstream","source_cache_modified":False}
+    # Undefined _MSC_VER evaluates to zero under MinGW. The legacy fallback
+    # then redefines wcscpy_s as two statements inside stralign.h expressions.
+    # Restrict this exact one-line upstream backport to the reviewed header;
+    # a changed dependency must be inspected instead of patched heuristically.
+    require(hashlib.sha256(canonical).hexdigest()=="bb1913bed7c1d6ab7cd3fcc12e3d53fa679d6ffca7425186da5c742b1d82e433",
+            "Unreviewed oneVPL MinGW compatibility header; inspect the upstream guard fix before building")
+    require(canonical.count(old)==1 and not output.exists(),"oneVPL build copy must be new and unambiguous")
+    patched=original.replace(old,fixed,1)
+    require(hashlib.sha256(patched.replace(b"\r\n",b"\n")).hexdigest()=="f49130c9a394c16395788c5133fab49e2f2d95973460aa41d1208f1146fe475b",
+            "oneVPL compatibility backport differs from Intel's reviewed source")
+    shutil.copytree(source,output,ignore=shutil.ignore_patterns(".git"))
+    (output/relative).write_bytes(patched)
+    return output,{**identity,"status":"upstream-backport-in-build-copy",
+                   "patched_header_sha256":hashlib.sha256(patched).hexdigest(),
+                   "source_cache_modified":False}
+
+
 def prepare_windows_gpu(plan: dict, target: str, cache: Path, prefix: Path,
                         jobs: int, msys: Path, env: dict) -> dict:
     """Compile optional device backends without requiring a GPU on the builder."""
@@ -527,6 +559,7 @@ def prepare_windows_gpu(plan: dict, target: str, cache: Path, prefix: Path,
     amf_version=".".join(m[1] for m in components)
     require(amf_version==plan["sources"]["amf"]["tag"].removeprefix("v"),"AMF headers differ from the resolved official version")
     vpl=source_checkout("libvpl",plan["sources"]["libvpl"],cache)
+    vpl,vpl_compatibility=prepare_libvpl_mingw_source(vpl,root/"libvpl-source")
     build=root/"libvpl"
     configure=["cmake","-S",msys_path(vpl),"-B",msys_path(build),"-G","Ninja","-DCMAKE_BUILD_TYPE=Release",
                f"-DCMAKE_INSTALL_PREFIX={msys_path(prefix)}","-DCMAKE_INSTALL_LIBDIR=lib","-DBUILD_SHARED_LIBS=ON",
@@ -542,6 +575,7 @@ def prepare_windows_gpu(plan: dict, target: str, cache: Path, prefix: Path,
     return {"nvcodec":{"source":plan["sources"]["nvcodec"],**nv_package,"upstream_driver_requirements":(nv/"README").read_text()[:8000]},
             "amf":{"source":plan["sources"]["amf"],"version":amf_version,"runtime":"AMD display driver supplies amfrt64.dll"},
             "libvpl":{"source":plan["sources"]["libvpl"],"api_version":version,"dispatcher":"libvpl.dll is bundled",
+                      "source_compatibility":vpl_compatibility,
                       "device_implementation":"Intel graphics driver supplies the hardware implementation selected by the dispatcher"},
             "device_execution_verified":False}
 
@@ -816,7 +850,8 @@ def media_smoke(ffmpeg: Path, ffplay: Path, work: Path, env: dict) -> dict:
     for name, options in previews.items():
         log=work/("ffplay-"+name+".log")
         run([ffplay,"-hide_banner","-loglevel","error","-autoexit",*options],env=silent,timeout=15,log=log)
-        require(not log.read_text(errors="replace").strip(),f"FFplay reported an error while previewing {name}; inspect {log}")
+        diagnostic=log.read_text(errors="replace").strip()
+        require(not diagnostic,f"FFplay reported an error while previewing {name}; inspect {log}\n{diagnostic[-4000:]}")
         checks.append({"preview":name,"video_driver":"dummy","audio_driver":"dummy","status":"passed"})
     receipt={"status":"passed","checks":checks,"scope":"synthetic local media only; no OBS/account/network/physical audio device",
              "hardware_encoders":"not validated; availability requires the compiled encoder plus a supported GPU and driver"}
