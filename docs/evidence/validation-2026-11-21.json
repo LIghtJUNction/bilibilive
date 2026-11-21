@@ -246,7 +246,9 @@
       "authenticated_http": "accepted",
       "anonymous_http": "rejected",
       "actual_broadcast_started": false,
-      "result": "passed"
+      "result": "passed",
+      "catalogue_validation": "Enumerated and checked catalogue contents; this smoke check did not execute every operation or tool.",
+      "mcp_executed_tool": "config.get"
     },
     "followup_revision_scope": "Only workflow shell selection and validation documentation; src/** and Cargo.lock unchanged."
   }
