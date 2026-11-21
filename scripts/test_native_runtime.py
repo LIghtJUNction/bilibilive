@@ -181,8 +181,8 @@ class NativePayloadTests(unittest.TestCase):
                 # Mirror upstream's actual unanchored substitution for both
                 # path dialects. Only the .ec filename suffix may match.
                 for path_module in (posixpath,ntpath):
-                    config=path_module.relpath(str(source/"crypto/err/openssl.ec"),str(cwd))
-                    state=path_module.relpath(str(source/"crypto/err/openssl.txt"),str(cwd))
+                    config=path_module.relpath((source/"crypto/err/openssl.ec").as_posix(),cwd.as_posix())
+                    state=path_module.relpath((source/"crypto/err/openssl.txt").as_posix(),cwd.as_posix())
                     self.assertEqual(re.sub(r".ec",".txt",config,count=1),state)
                 self.assertEqual(checkout.call_args_list[-1].args,("openssl",plan["sources"]["openssl"],cache))
                 self.assertEqual(sum(call.args[0]=="openssl" for call in checkout.call_args_list),2)
