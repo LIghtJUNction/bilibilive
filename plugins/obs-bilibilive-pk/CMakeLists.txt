@@ -23,7 +23,7 @@ if(STARTLIVE_PK_BUILD_PLUGIN)
   # names the framework directory, so Qt mistakenly links its parent folder.
   # Use CMake's target directly. This also omits AGL, a no-op on 64-bit macOS
   # that was removed from the macOS 26 SDK, while retaining OpenGL itself.
-  if(APPLE)
+  if(APPLE AND TARGET WrapOpenGL::WrapOpenGL AND TARGET OpenGL::GL)
     set_property(TARGET WrapOpenGL::WrapOpenGL PROPERTY INTERFACE_LINK_LIBRARIES OpenGL::GL)
   endif()
   add_library(obs-bilibilive-pk MODULE src/plugin.cpp src/media_transport.cpp src/shared_video.cpp)

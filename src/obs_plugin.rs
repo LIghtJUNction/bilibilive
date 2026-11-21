@@ -195,7 +195,11 @@ pub fn status(args: &Value) -> Result<Value, String> {
     bundle::no_links(&plugin)?;
     let installed = fs::metadata(&plugin).is_ok_and(|m| m.is_file() && m.len() > 0);
     let mut issues = Vec::new();
-    let receipt = match old_receipt(&target) {
+    let receipt = match if managed.is_some() {
+        Ok(None)
+    } else {
+        old_receipt(&target)
+    } {
         Ok(value) => value,
         Err(error) => {
             issues.push(error);
