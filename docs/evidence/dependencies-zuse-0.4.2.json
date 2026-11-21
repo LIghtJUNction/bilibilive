@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "purpose": "Targeted development dependency refresh after the immutable bilibilive 0.1.2 release source was selected.",
+  "checked_from_utc": "2026-11-21T15:53:50.081168+00:00",
+  "checked_to_utc": "2026-11-21T15:59:10.344973+00:00",
+  "bilibilive_base_commit": "9c0f2ae850ee0b930ba7f2e1754ad57797f2c413",
+  "bilibilive_package_version": "0.1.2",
+  "manifest_unchanged": true,
+  "command": [
+    "cargo",
+    "update",
+    "-p",
+    "zuse-computer"
+  ],
+  "cargo_lock_sha256": "a3d5ece1986450ec20a716fcb317500def51c919463d2767c61bceff7949796f",
+  "changes": [
+    {
+      "package": "zuse-computer",
+      "repository": "https://github.com/LIghtJUNction/zuse.git",
+      "previous_version": "0.4.1",
+      "previous_commit": "48c35a2a5550f8dfc1e0e1be2577f1e64de6e0ae",
+      "version": "0.4.2",
+      "locked_commit": "d67e47c5dcd443ad9121a908ca57059160249051",
+      "observed_default_head": "d67e47c5dcd443ad9121a908ca57059160249051"
+    }
+  ],
+  "other_dependency_records_unchanged": true,
+  "zuse_library_comparison": {
+    "old_zuse": "48c35a2a5550f8dfc1e0e1be2577f1e64de6e0ae",
+    "new_zuse": "d67e47c5dcd443ad9121a908ca57059160249051",
+    "library_source_file_count": 54,
+    "library_source_blobs_identical": true,
+    "changed_paths": [
+      ".github/workflows/ci.yml",
+      "CHANGELOG.md",
+      "Cargo.lock",
+      "Cargo.toml",
+      "README.md",
+      "README.zh-CN.md",
+      "docs/update.md",
+      "src/main.rs",
+      "src/update.rs",
+      "tests/cli_update.py"
+    ],
+    "binary_source_changes": [
+      "src/main.rs",
+      "src/update.rs"
+    ],
+    "public_library_version_constant": "0.4.1 -> 0.4.2 through CARGO_PKG_VERSION",
+    "note": "update module is declared only by src/main.rs; no library API or implementation source change"
+  },
+  "existing_format_gate_repair": {
+    "initial_check_exit_code": 1,
+    "file": "src/gui.rs",
+    "hunks": 4,
+    "formatter": [
+      "cargo",
+      "fmt",
+      "--all"
+    ],
+    "final_check_exit_code": 0,
+    "reason": "The public 0.1.2 baseline already failed rustfmt at four GUI call/assertion wraps. The dependency refresh leaves GUI behavior unchanged while applying the required formatting gate.",
+    "token_changes": "Whitespace/line wrapping and removal of two optional trailing commas in canvas.rect and pill calls only. All other Rust lexical tokens, literals, arguments, and expressions are unchanged.",
+    "git_diff_w_empty": false,
+    "git_diff_w_note": "Line regrouping and two optional trailing argument commas remain visible; this is not claimed to be an empty -w diff.",
+    "behavior_tests_repeated_after_format": false
+  },
+  "checks": [
+    {
+      "name": "zuse-host-tests",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--lib",
+        "zuse_host::tests"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 13.437,
+      "log": "zuse-host-tests.log",
+      "sha256": "3567d8d437e2979072c60515e908d995b0f6c970feb4c6f92b715c2b1ff5af66",
+      "tests_passed": 7
+    },
+    {
+      "name": "cli-unit",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--no-default-features",
+        "--bin",
+        "bilibilive"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 5.202,
+      "log": "cli-unit.log",
+      "sha256": "d80fe6901c9ae773b4ddfa1ec609fd7a9acda4b785bbc8b2e020a3d4dca622fe",
+      "tests_passed": 2
+    },
+    {
+      "name": "headless-check",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 21.551,
+      "log": "headless-check.log",
+      "sha256": "206600ea1ba102e0e1e7d1574dfb5e808670bfda70dc95142bbaba0adbd94665"
+    },
+    {
+      "name": "cli-build",
+      "command": [
+        "cargo",
+        "build",
+        "--locked",
+        "--no-default-features",
+        "--bin",
+        "bilibilive"
+      ],
+      "exit_code": 0,
+      "elapsed_s": 1.025,
+      "log": "cli-build.log",
+      "sha256": "2844163257efff6e04f249678692de5dfde33c66e8d5b07c43732523c60b3bf7"
+    },
+    {
+      "name": "fmt-final",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "log": "fmt-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "cli_smoke": {
+    "command": [
+      "bilibilive",
+      "--config-dir",
+      "PRIVATE_TEMP_DIRECTORY",
+      "--read-only",
+      "--json",
+      "zuse",
+      "eval",
+      "repeat 3 { config.get(); }"
+    ],
+    "exit_code": 0,
+    "elapsed_s": 0.028,
+    "status": "completed",
+    "completed_steps": 3,
+    "operations": [
+      "config.get",
+      "config.get",
+      "config.get"
+    ],
+    "config_file_created": false,
+    "live_account_used": false,
+    "network_operations_requested": false,
+    "binary_sha256": "09a2c620237f27433343da7449c55d2239bd498e5690cb8b8deb7851996ca4fe",
+    "stdout_sha256": "3bdbe0e192df35b2e0a983ed4eafaca1286d09b06defe7bd95aa4f28905ef936"
+  },
+  "test_scope": {
+    "zuse_host_integration_tests": 7,
+    "cli_unit_tests": 2,
+    "headless_all_targets_check": true,
+    "live_bilibili_account_used": false,
+    "live_broadcast_or_pk_started": false,
+    "gui_rendering_repeated": false,
+    "full_unrelated_library_suite_repeated": false
+  },
+  "release_refs_unchanged": {
+    "bilibilive_v0.1.1": "0f97b0e59240fd1230878371c4b9126f0955b70f",
+    "bilibilive_v0.1.2": "9c0f2ae850ee0b930ba7f2e1754ad57797f2c413",
+    "zuse_v0.4.2": "b4fde0eb0fce85cc7db2f9f991c47a5a81889ada"
+  }
+}

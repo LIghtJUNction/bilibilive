@@ -1643,11 +1643,7 @@ impl Desktop {
         }
         canvas.line((30., height - 91.), (190., height - 91.), 1., HAIRLINE);
         let active_name = self.active_name();
-        canvas.rect(
-            Rect::new(31., height - 68., 29., 29.),
-            14.5,
-            ACCENT_SOFT,
-        );
+        canvas.rect(Rect::new(31., height - 68., 29., 29.), 14.5, ACCENT_SOFT);
         let initial = active_name.chars().next().unwrap_or('B').to_string();
         canvas.text(&initial, 40., height - 63., 14, true, ACCENT);
         canvas.ellipsis(&active_name, 72., height - 69., 123., 13, true, INK);
@@ -1671,14 +1667,7 @@ impl Desktop {
         if self.demo {
             pill(canvas, width - 128., 38., "DEMO", ACCENT, ACCENT_SOFT);
         } else if self.pending > 0 {
-            pill(
-                canvas,
-                width - 140.,
-                38.,
-                "正在处理",
-                ACCENT,
-                ACCENT_SOFT,
-            );
+            pill(canvas, width - 140., 38., "正在处理", ACCENT, ACCENT_SOFT);
         } else {
             canvas.rect(Rect::new(width - 120., 45., 5., 5.), 2.5, SUCCESS);
             canvas.text("准备就绪", width - 106., 39., 11, false, MUTED);
@@ -4561,7 +4550,10 @@ mod tests {
             })
             .unwrap();
         desktop.receive();
-        assert_eq!(serde_json::from_str::<Value>(&desktop.script_output).unwrap(), receipt);
+        assert_eq!(
+            serde_json::from_str::<Value>(&desktop.script_output).unwrap(),
+            receipt
+        );
         let (message, success, _) = desktop.notice.as_ref().unwrap();
         assert!(!success);
         assert_eq!(message, "自动化操作未完成，请查看执行结果详情。");
@@ -4655,7 +4647,10 @@ mod tests {
             let (message, success, _) = desktop.notice.as_ref().unwrap();
             assert_eq!(message, error);
             assert!(!success);
-            assert_eq!(desktop.activity, vec![("持续观察 OBS 推流状态".into(), false)]);
+            assert_eq!(
+                desktop.activity,
+                vec![("持续观察 OBS 推流状态".into(), false)]
+            );
         }
     }
 
