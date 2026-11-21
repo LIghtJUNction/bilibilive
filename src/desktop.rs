@@ -303,28 +303,75 @@ impl Tray {
 }
 
 fn default_icon() -> Result<Icon, String> {
-    // Original geometric mark, generated from source; no embedded bitmap.
-    let mut pixels = vec![0u8; 32 * 32 * 4];
-    for y in 0..32usize {
-        for x in 0..32usize {
-            let circle = (x as i32 - 16).pow(2) + (y as i32 - 16).pow(2) < 225;
-            let mark = (9..13).contains(&x) && (7..25).contains(&y)
-                || (12..21).contains(&x)
-                    && ((7..11).contains(&y) || (14..18).contains(&y) || (21..25).contains(&y))
-                || (19..23).contains(&x) && ((9..16).contains(&y) || (17..23).contains(&y));
-            let live = (x as i32 - 26).pow(2) + (y as i32 - 6).pow(2) < 16;
-            let color = if live {
-                [85, 202, 157, 255]
-            } else if mark {
-                [143, 180, 255, 255]
-            } else if circle {
-                [18, 20, 26, 255]
-            } else {
-                [0, 0, 0, 0]
-            };
-            pixels[(y * 32 + x) * 4..(y * 32 + x + 1) * 4].copy_from_slice(&color);
+    // The same open playback mark as packaging/bilibilive.svg. Keep this small
+    // source drawing available without an installed asset or an SVG dependency.
+    fn curve(points: &mut Vec<[f32; 2]>, a: [f32; 2], b: [f32; 2], end: [f32; 2]) {
+        let start = *points.last().expect("path starts with a point");
+        for step in 1..=16 {
+            let t = step as f32 / 16.;
+            let u = 1. - t;
+            points.push(std::array::from_fn(|axis| {
+                u.powi(3) * start[axis]
+                    + 3. * u * u * t * a[axis]
+                    + 3. * u * t * t * b[axis]
+                    + t.powi(3) * end[axis]
+            }));
         }
     }
+    fn contains(points: &[[f32; 2]], x: f32, y: f32) -> bool {
+        let mut inside = false;
+        let mut previous = *points.last().expect("nonempty path");
+        for &point in points {
+            if (point[1] > y) != (previous[1] > y)
+                && x < (previous[0] - point[0]) * (y - point[1]) / (previous[1] - point[1])
+                    + point[0]
+            {
+                inside = !inside;
+            }
+            previous = point;
+        }
+        inside
+    }
+    let mut frame = vec![[40., 28.], [98., 46.]];
+    curve(&mut frame, [102., 47.], [104., 51.], [104., 55.]);
+    curve(&mut frame, [104., 57.], [102., 58.], [100., 58.]);
+    frame.push([95., 58.]);
+    curve(&mut frame, [93., 58.], [91., 56.], [91., 54.]);
+    frame.extend([[91., 53.], [40., 38.]]);
+    curve(&mut frame, [38., 37.], [37., 39.], [37., 41.]);
+    frame.push([37., 87.]);
+    curve(&mut frame, [37., 89.], [38., 91.], [40., 90.]);
+    frame.extend([[91., 75.], [91., 74.]]);
+    curve(&mut frame, [91., 72.], [93., 70.], [95., 70.]);
+    frame.push([100., 70.]);
+    curve(&mut frame, [102., 70.], [104., 71.], [104., 73.]);
+    curve(&mut frame, [104., 77.], [102., 81.], [98., 82.]);
+    frame.push([40., 100.]);
+    curve(&mut frame, [32., 102.], [24., 96.], [24., 87.]);
+    frame.push([24., 41.]);
+    curve(&mut frame, [24., 32.], [32., 26.], [40., 28.]);
+    let mut play = vec![[55., 48.]];
+    curve(&mut play, [53., 47.], [51., 48.], [51., 51.]);
+    play.push([51., 77.]);
+    curve(&mut play, [51., 80.], [53., 81.], [55., 80.]);
+    play.push([78., 67.]);
+    curve(&mut play, [81., 66.], [81., 62.], [78., 61.]);
+    let drawing = RgbaImage::from_fn(128, 128, |x, y| {
+        let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+        let color = if contains(&play, x, y) {
+            [217, 145, 106, 255]
+        } else if contains(&frame, x, y) {
+            [242, 238, 231, 255]
+        } else if ((x - 64.).abs() - 36.).max(0.).powi(2) + ((y - 64.).abs() - 36.).max(0.).powi(2)
+            <= 28. * 28.
+        {
+            [24, 23, 22, 255]
+        } else {
+            [0, 0, 0, 0]
+        };
+        image::Rgba(color)
+    });
+    let pixels = image::imageops::resize(&drawing, 32, 32, FilterType::Triangle).into_raw();
     Icon::from_rgba(pixels, 32, 32).map_err(|e| e.to_string())
 }
 
