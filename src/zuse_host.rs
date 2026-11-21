@@ -90,14 +90,7 @@ fn execute_plan(
     let mut receipts = Vec::with_capacity(plan.steps.len());
     for (index, step) in plan.steps.iter().enumerate() {
         if cancellation.is_cancelled() {
-            return receipt(
-                "cancelled",
-                plan,
-                receipts,
-                started,
-                Some(index + 1),
-                None,
-            );
+            return receipt("cancelled", plan, receipts, started, Some(index + 1), None);
         }
         let command_started = Instant::now();
         let result = match step.operation.as_str() {
@@ -655,9 +648,8 @@ mod tests {
             ("live.stream", json!({"available":false})),
         ] {
             let fixture = Fixture::new();
-            let source = format!(
-                "config.get();{operation}();config.set(key=\"default_area\",value=42)"
-            );
+            let source =
+                format!("config.get();{operation}();config.set(key=\"default_area\",value=42)");
             let plan = prepare(&source, None, false, false).unwrap();
             let mut called = Vec::new();
             let run = execute_plan(&plan, &CancellationToken::default(), |method, args| {
