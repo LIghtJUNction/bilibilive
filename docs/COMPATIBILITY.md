@@ -5,11 +5,12 @@ claim requires both implementation and evidence for the feature matrix in
 [STARTLIVE_AUDIT.md](STARTLIVE_AUDIT.md). The reference default-branch revision
 is `Radekyspec/StartLive@0b5a9830a8305d9cd6ac15378e46bee05b894c11`.
 
-The [validation record](VALIDATION.md) distinguishes the updated-dependency
-headless tests from the earlier Linux native snapshot. Its linked receipts
-include dependency and source hashes, full-window screenshot hashes, background
-pixel checks and an isolated OBS 33 module-load result. These local checks do
-not establish authenticated platform or two-party PK acceptance.
+The [validation record](VALIDATION.md) distinguishes the final `ae04b164` native
+publication gate and installation-prefix checks from the earlier Linux window
+and media snapshot. Its linked receipts include dependency and source hashes,
+full-window screenshot hashes, background pixel checks and an isolated OBS 33
+module-load result. These local checks do not establish authenticated platform
+or two-party PK acceptance.
 
 ## Bilibili account and broadcast control
 

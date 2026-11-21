@@ -193,13 +193,13 @@
       "all_sessions_children_exited": true,
       "configuration_removed": true
     },
-    "final_lock_native_validation": "Pending; do not infer final-lock native acceptance from this older-lock run."
+    "final_lock_native_validation": "See final_native_publication_gate for the successful ae04b164 run against the refreshed lock."
   },
   "open_acceptance": [
     "Authenticated Bilibili account and permission-dependent broadcast operations",
     "Two-party platform PK invitation, capture, publication and reception",
     "macOS and Windows native desktop/plugin runtime acceptance",
-    "Linux linux-software backend build and screenshot acceptance for the final source",
+    "Linux linux-software backend screenshot acceptance for the final source",
     "Publication and installation receipts for GitHub, crates.io and AUR"
   ],
   "final_lock_adjustment": {
@@ -216,5 +216,38 @@
     "only_locked_package_changed": "zuse-computer",
     "final_dependency_lock_sha256": "c5d7ef6aba1860fefc100f1211ca3b6378f0cf68507bdd6015b4190b492c9668",
     "scope": "Documentation-only upstream adjustment after the recorded headless test run. No new test run is claimed."
+  },
+  "final_native_publication_gate": {
+    "source_commit": "ae04b1640ab3a78bba3a5a000c1eea551a55c5dc",
+    "dependency_lock_sha256": "c5d7ef6aba1860fefc100f1211ca3b6378f0cf68507bdd6015b4190b492c9668",
+    "command": "python scripts/validate.py --release --obs-plugin",
+    "exit_code": 0,
+    "checks": [
+      "cargo fmt --all -- --check",
+      "cargo check --locked --all-targets --all-features",
+      "cargo test --locked --all-features",
+      "cargo check --locked --no-default-features",
+      "cargo build --locked --release",
+      "OBS plugin CMake configure/build"
+    ],
+    "library_tests_passed": 65,
+    "cli_tests_passed": 2,
+    "failed": 0,
+    "linux_software_build_and_tests": true,
+    "linux_software_screenshot_acceptance": false,
+    "source_of_execution_receipt": "Native release coordinator; execution completed before this documentation-only and workflow-only revision.",
+    "installed_prefix_smoke": {
+      "source_commit": "ae04b1640ab3a78bba3a5a000c1eea551a55c5dc",
+      "isolated_installation_prefix": true,
+      "schema_operations": 94,
+      "read_only_mcp_tools": 35,
+      "stdio_mcp_initialization": "passed",
+      "zuse_completed_steps": 3,
+      "authenticated_http": "accepted",
+      "anonymous_http": "rejected",
+      "actual_broadcast_started": false,
+      "result": "passed"
+    },
+    "followup_revision_scope": "Only workflow shell selection and validation documentation; src/** and Cargo.lock unchanged."
   }
 }

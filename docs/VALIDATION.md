@@ -7,6 +7,33 @@ lock and source digests, screenshot hashes and the four background samples.
 The [dependency receipt](evidence/dependencies-2026-11-21.json) records the public
 Project Z default heads and the stable versions returned by crates.io.
 
+## Final native publication gate
+
+Commit `ae04b1640ab3a78bba3a5a000c1eea551a55c5dc`, using the final dependency
+lock, passed the following command on the Linux development host:
+
+```sh
+python scripts/validate.py --release --obs-plugin
+```
+
+The command exited successfully after format checking, all-target/all-feature
+checking, 65 library and 2 CLI tests, the headless check, the default native
+release build and the OBS plugin build. The all-feature check and tests include
+`linux-software`; this is build and test evidence, not a screenshot of that
+rendering backend.
+
+The same runtime also passed an independent installation-prefix smoke check:
+the operation catalogue contained 94 operations, the read-only MCP catalogue
+contained 35 tools, stdio MCP initialization succeeded, a three-step zuse
+program completed, and the local HTTP API accepted its authenticated request
+while refusing an anonymous request. No actual broadcast was started.
+
+This record attributes those results to `ae04b164`. The following release
+revision changes only the Windows workflow's shell selection and validation
+documentation; its Rust runtime and dependency lock remain identical. It does
+not claim that those 67 tests were executed a second time for a documentation
+change.
+
 ## Dependency refresh and headless tests
 
 `cargo update` refreshed five Project Z sources to their public default branches:
@@ -101,9 +128,10 @@ their child processes had exited and their private configuration was removed.
 
 ## Remaining acceptance boundaries
 
-The refreshed lock's full native build is a separate gate from the earlier
-native snapshot. Formal release results should identify their own source
-commit. Authenticated Bilibili permissions, broadcast mutations, online
+The final native gate above uses the refreshed lock; the older screenshot and
+media probes retain their original snapshot attribution. Formal release results
+should identify their own source commit. Authenticated Bilibili permissions,
+broadcast mutations, online
 two-party PK, direct/relay transport tickets, macOS and Windows desktop/plugin
 runtime behavior, and published-package installation each require their own
 receipts. [COMPATIBILITY.md](COMPATIBILITY.md) describes the complete audited

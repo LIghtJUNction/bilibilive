@@ -46,6 +46,7 @@ jobs:
           PY
           cargo metadata --locked --format-version 1 > /dev/null
       - name: Validate native build
+        shell: bash
         run: |
           cargo test --locked
           cargo check --locked --no-default-features
