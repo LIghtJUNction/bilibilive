@@ -1046,7 +1046,15 @@ impl Desktop {
                         "zuse.run" | "zuse.schema" => {
                             self.script_output = serde_json::to_string_pretty(&value)
                                 .unwrap_or_else(|_| value.to_string());
-                            self.notice("自动化操作已完成。", true);
+                            let success = crate::app::is_success(&value);
+                            self.notice(
+                                if success {
+                                    "自动化操作已完成。"
+                                } else {
+                                    "自动化操作未完成，请查看执行结果详情。"
+                                },
+                                success,
+                            );
                         }
                         _ => self.notice("操作已完成。", true),
                     }
@@ -4525,6 +4533,40 @@ mod tests {
         desktop.receive();
         assert_eq!(desktop.title, "Unsaved draft");
         assert_eq!(desktop.room["title"], "Published title");
+    }
+
+    #[test]
+    fn automation_failure_keeps_its_receipt_without_reporting_success_or_retrying() {
+        let (tx, requests) = mpsc::channel();
+        let (responses, rx) = mpsc::channel();
+        let mut desktop = Desktop::new(tx, rx, false, false);
+        let receipt = json!({
+            "ok": false,
+            "status": "failed",
+            "completed_steps": 0,
+            "failed_step": {
+                "operation": "live.start",
+                "result": {
+                    "ok": false,
+                    "status": "partial_failure",
+                    "room_remains_live": true,
+                    "obs": {"ok": false, "error": "OBS fixture failure"},
+                },
+            },
+        });
+        responses
+            .send(Response {
+                method: "zuse.run".into(),
+                result: Ok(receipt.clone()),
+            })
+            .unwrap();
+        desktop.receive();
+        assert_eq!(serde_json::from_str::<Value>(&desktop.script_output).unwrap(), receipt);
+        let (message, success, _) = desktop.notice.as_ref().unwrap();
+        assert!(!success);
+        assert_eq!(message, "自动化操作未完成，请查看执行结果详情。");
+        assert_eq!(desktop.activity, vec![("运行自动化脚本".into(), false)]);
+        assert!(requests.try_recv().is_err());
     }
 
     #[test]
