@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Use a warm-gray and terracotta-orange desktop palette while preserving
+  the existing layout and operation behavior.
+
 ## 0.1.1
 
 - Stop embedded zuse programs when a shared operation reports a structured

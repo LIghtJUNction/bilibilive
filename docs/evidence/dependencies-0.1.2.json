@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "application_version": "0.1.2",
+  "checked_from_utc": "2026-11-21T14:53:57.009900+00:00",
+  "checked_to_utc": "2026-11-21T14:54:14.118624+00:00",
+  "method": "git ls-remote --symref <repository> HEAD for every locked Project Z Git dependency",
+  "baseline_source_commit": "0f97b0e59240fd1230878371c4b9126f0955b70f",
+  "lock_sha256": "f09dc3bc7945a48f70d4dd86abc6d667554224aa17d2ffc95784be2c36aa516c",
+  "dependency_updates_applied": false,
+  "git_dependencies": [
+    {
+      "package": "z64",
+      "version": "0.1.2",
+      "repository": "https://github.com/LIghtJUNction/z64.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd",
+      "observed_default_head": "7e9cff67beae2c484f8b9749b83ae24a1d0e1bbd",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:09.004541+00:00"
+    },
+    {
+      "package": "zcall",
+      "version": "0.4.1",
+      "repository": "https://github.com/LIghtJUNction/zcall.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "8dd30a922a0aedbe821f610649b1ab26078d1882",
+      "observed_default_head": "8dd30a922a0aedbe821f610649b1ab26078d1882",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:08.727452+00:00"
+    },
+    {
+      "package": "zclap",
+      "version": "0.1.4",
+      "repository": "https://github.com/LIghtJUNction/zclap.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "4d87f3ae3743e81509d5ac5500909955667c860f",
+      "observed_default_head": "4d87f3ae3743e81509d5ac5500909955667c860f",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:09.008350+00:00"
+    },
+    {
+      "package": "zconv",
+      "version": "0.4.1",
+      "repository": "https://github.com/LIghtJUNction/zconv.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "observed_default_head": "f78b97b7065bbb7cf9ddfd0914d7f2296bbfe712",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:08.754232+00:00"
+    },
+    {
+      "package": "zgpui",
+      "version": "0.1.6",
+      "repository": "https://github.com/LIghtJUNction/zgpui.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "174a8b73087deeac2ecfa036cad8bddba71c612f",
+      "observed_default_head": "174a8b73087deeac2ecfa036cad8bddba71c612f",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:14.068384+00:00"
+    },
+    {
+      "package": "zmcpio",
+      "version": "0.5.0",
+      "repository": "https://github.com/LIghtJUNction/zmcpio.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "c114a5ae9f925c64f3b090b8524016cbb90b6cff",
+      "observed_default_head": "c114a5ae9f925c64f3b090b8524016cbb90b6cff",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:14.118023+00:00"
+    },
+    {
+      "package": "zsys",
+      "version": "0.1.1",
+      "repository": "https://github.com/LIghtJUNction/zsys.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7",
+      "observed_default_head": "808fcfdb73584ca7ca122e20b76f0209f56ab0f7",
+      "matches_lock": true,
+      "checked_at_utc": "2026-11-21T14:54:14.070319+00:00"
+    },
+    {
+      "package": "zuse-computer",
+      "version": "0.4.0",
+      "repository": "https://github.com/LIghtJUNction/zuse.git",
+      "default_branch": "refs/heads/main",
+      "locked_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
+      "observed_default_head": "67b6d8e9a804636c71a3e2417f94cb1eb29a5d38",
+      "matches_lock": false,
+      "checked_at_utc": "2026-11-21T14:54:14.024433+00:00"
+    }
+  ],
+  "observed_changes": [
+    {
+      "package": "zuse-computer",
+      "locked_commit": "0016f96067d1e4672c62be9d8008d210edcdae2d",
+      "observed_default_head": "67b6d8e9a804636c71a3e2417f94cb1eb29a5d38",
+      "changed_paths": [
+        "tests/native_x11_utf8.py",
+        "tests/x11_utf8_native.rs"
+      ],
+      "runtime_manifest_and_lock_unchanged": true,
+      "package_version_unchanged": "0.4.0",
+      "publication_scope_changed": true,
+      "note": "The changed tests are included in the crate publication scope. This release retains the previously verified locked source."
+    }
+  ],
+  "registry_projection_status": "Separate complete registry staging verification is required for the final 0.1.2 source commit."
+}
