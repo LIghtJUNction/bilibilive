@@ -239,6 +239,26 @@ class NativePayloadTests(unittest.TestCase):
         self.assertEqual(header.read_bytes(),original)
         self.assertFalse(output.exists())
 
+    def test_ffplay_status_controls_are_disabled_without_hiding_actual_errors(self):
+        log=self.root/"ffplay.log"
+        # Exact bytes from the failed FFplay 9.1 native run: no error text,
+        # only an unconditional status-line clear followed by the exit newline.
+        status=b"\x1b[2K\r\n"
+        self.assertEqual(hashlib.sha256(status).hexdigest(),
+                         "ccbe40b34e6f79a509e0c8af86d99979f8424217582c4046ea44cb4ccb5d9c03")
+        def ffplay(argv,**kwargs):
+            self.assertEqual(kwargs["timeout"],15)
+            self.assertEqual(argv[argv.index("-loglevel")+1],"error")
+            log.write_bytes(b"" if "-nostats" in argv else status)
+        with patch.object(native,"run",side_effect=ffplay):
+            native.ffplay_smoke(Path("fixture-ffplay"),"nv12",["sample.nv12"],{},log)
+        def broken_preview(argv,**kwargs):
+            ffplay(argv,**kwargs)
+            log.write_text("Failed to create window: fixture driver error\n")
+        with patch.object(native,"run",side_effect=broken_preview),\
+                self.assertRaisesRegex(RuntimeError,"fixture driver error"):
+            native.ffplay_smoke(Path("fixture-ffplay"),"nv12",["sample.nv12"],{},log)
+
     def test_process_timeout_is_bounded(self):
         begin=time.monotonic()
         with self.assertRaises(subprocess.TimeoutExpired):

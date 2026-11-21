@@ -805,6 +805,15 @@ def licenses(plan: dict, cache: Path, output: Path, prefixes: list[Path], msys: 
     write_json(directory/"sources.json",plan)
 
 
+def ffplay_smoke(ffplay: Path, name: str, options: list, env: dict, log: Path) -> None:
+    # FFplay 9.1 writes status-line clear escapes directly to stderr even with
+    # -loglevel error. Disable that status output, not actual error reporting.
+    run([ffplay,"-hide_banner","-loglevel","error","-nostats","-autoexit",*options],
+        env=env,timeout=15,log=log)
+    diagnostic=log.read_text(errors="replace").strip()
+    require(not diagnostic,f"FFplay reported an error while previewing {name}; inspect {log}\n{diagnostic[-4000:]}")
+
+
 def media_smoke(ffmpeg: Path, ffplay: Path, work: Path, env: dict) -> dict:
     """Exercise software encoding, decoding and silent SDL playback in <= 30s per child."""
     import math
@@ -849,9 +858,7 @@ def media_smoke(ffmpeg: Path, ffplay: Path, work: Path, env: dict) -> dict:
               "h264":["-an",work/"h264.mkv"],"av1":["-an",work/"av1.mkv"]}
     for name, options in previews.items():
         log=work/("ffplay-"+name+".log")
-        run([ffplay,"-hide_banner","-loglevel","error","-autoexit",*options],env=silent,timeout=15,log=log)
-        diagnostic=log.read_text(errors="replace").strip()
-        require(not diagnostic,f"FFplay reported an error while previewing {name}; inspect {log}\n{diagnostic[-4000:]}")
+        ffplay_smoke(ffplay,name,options,silent,log)
         checks.append({"preview":name,"video_driver":"dummy","audio_driver":"dummy","status":"passed"})
     receipt={"status":"passed","checks":checks,"scope":"synthetic local media only; no OBS/account/network/physical audio device",
              "hardware_encoders":"not validated; availability requires the compiled encoder plus a supported GPU and driver"}
