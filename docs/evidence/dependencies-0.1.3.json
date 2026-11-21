@@ -180,5 +180,20 @@
   "development_manifests_have_no_git_version_or_ref_selectors": true,
   "cargo_lock_sha256": "276df58f4fc49a1c52c8d8dbed7056dff863cecb26ce384a6f3e64e066d33c6a",
   "registry_projection_policy": "Verify every included dependency source file against its exact published crate. The native build snapshot does not waive this independent publication gate.",
-  "source_scope_guard_sha256": "92f142b65123b3c7ee347337139d539c6e187a9605c9c314bed786f94ff06f1e"
+  "source_scope_guard_sha256": "92f142b65123b3c7ee347337139d539c6e187a9605c9c314bed786f94ff06f1e",
+  "zuse_registry_readback": {
+    "checked_at_utc": "2026-11-21T17:23:35.622819+00:00",
+    "version": "0.5.0",
+    "source_commit": "b5ebbd3679af215706cbd73b17045e014f5e0524",
+    "url": "https://crates.io/crates/zuse-computer/0.5.0",
+    "official_api": "https://crates.io/api/v1/crates/zuse-computer/0.5.0",
+    "archive_sha256": "e6dd9ce7c49acbc84877dc908095e824925a2081ea7c09fc9ba15842d08f8e40",
+    "archive_bytes": 714383,
+    "owners": [
+      "LIghtJUNction"
+    ],
+    "yanked": false,
+    "complete_source_files_compared": 213,
+    "source_guard_sha256": "8bced7c334b35400e8732b45008cd61866d61345ea1e633556c7b5a8864f0748"
+  }
 }

@@ -55,6 +55,7 @@ struct Inner {
     update_exit_requested: AtomicBool,
     pending_update_reply: Mutex<Option<PendingUpdateReply>>,
     updater: crate::updater::Updater,
+    protocol_profiles: crate::protocol_profile::ProtocolProfiles,
     pk: Mutex<crate::pk_session::PkSession>,
     media: crate::media::MediaManager,
     observer: Mutex<Option<observer::Observer>>,
@@ -85,6 +86,7 @@ impl App {
         let directory = directory.unwrap_or_else(config::default_dir);
         let config = Config::load(&directory)?;
         let updater = crate::updater::Updater::new(directory.clone());
+        let protocol_profiles = crate::protocol_profile::ProtocolProfiles::new(&directory);
         let app = Self {
             inner: Arc::new(Inner {
                 directory,
@@ -110,6 +112,7 @@ impl App {
                 update_exit_requested: AtomicBool::new(false),
                 pending_update_reply: Mutex::new(None),
                 updater,
+                protocol_profiles,
                 pk: Mutex::new(crate::pk_session::PkSession::new()),
                 observer: Mutex::new(None),
             }),
@@ -296,19 +299,23 @@ impl App {
         let cfg = self.config()?;
         self.client_for_config(cookie, &cfg)
     }
-    fn client_for_config(&self, cookie: &str, cfg: &Config) -> Result<BiliClient, String> {
+    fn bili_options(&self, cfg: &Config) -> Result<BiliOptions, String> {
         let proxy = if cfg.proxy_credentials_set {
             Some(config::load_secret(&self.inner.directory, "proxy")?)
         } else {
             (!cfg.proxy.is_empty()).then(|| cfg.proxy.clone())
         };
-        BiliClient::with_options(
+        Ok(BiliOptions {
+            proxy,
+            use_system_proxy: cfg.use_system_proxy,
+            timeout_secs: cfg.timeout_secs,
+        })
+    }
+    fn client_for_config(&self, cookie: &str, cfg: &Config) -> Result<BiliClient, String> {
+        BiliClient::with_profile(
             cookie,
-            BiliOptions {
-                proxy,
-                use_system_proxy: cfg.use_system_proxy,
-                timeout_secs: cfg.timeout_secs,
-            },
+            self.bili_options(cfg)?,
+            self.inner.protocol_profiles.snapshot()?,
         )
     }
     fn client(&self) -> Result<BiliClient, String> {
@@ -588,8 +595,14 @@ impl App {
                 "accounts":self.config()?.accounts.len(),"credential_store":"OS keyring",
                 "read_only":self.read_only,"config_dir":self.inner.directory,
                 "bundle":crate::bundle::diagnostics(),
+                "protocol_profile":self.inner.protocol_profiles.status(),
                 "native_media":self.inner.media.call("status", &json!({})).unwrap_or_else(|e|json!({"available":false,"message":e}))
             })),
+            "protocol.status" => Ok(self.inner.protocol_profiles.status()),
+            "protocol.refresh" => self
+                .inner
+                .protocol_profiles
+                .refresh(&self.bili_options(&self.config()?)?),
             "config.get" => Ok(self.cached_snapshot()),
             "config.set" => {
                 let mut cfg = self.config()?;
@@ -1766,6 +1779,28 @@ mod account_lease_tests {
             .call("obs.plugin.install", json!({}))
             .expect_err("read-only mode must reject installation before inspecting any bundle");
         assert!(denied.contains("disabled in read-only mode"));
+        let protocol = app.call("protocol.status", json!({})).unwrap();
+        assert!(protocol["version"].is_string());
+        for name in ["ak", "as", "headers", "hw", "ha"] {
+            assert!(protocol.get(name).is_none());
+        }
+        let denied = app.call("protocol.refresh", json!({})).expect_err(
+            "read-only mode must reject protocol refresh before network or cache writes",
+        );
+        assert!(denied.contains("disabled in read-only mode"));
+        assert!(
+            app.call(
+                "zuse.run",
+                json!({"script":"protocol.status(); protocol.refresh()"})
+            )
+            .is_err()
+        );
+        assert!(
+            !fixture
+                .directory
+                .join("protocol-profile/version.json")
+                .exists()
+        );
         assert!(
             app.call(
                 "zuse.run",

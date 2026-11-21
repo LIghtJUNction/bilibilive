@@ -47,6 +47,20 @@ pub fn operations() -> Vec<Spec> {
             &[],
         ),
         spec(
+            "protocol.status",
+            "Read the active Bilibili request profile and its local cache status",
+            true,
+            json!({}),
+            &[],
+        ),
+        spec(
+            "protocol.refresh",
+            "Refresh validated Bilibili request parameters from the official StartLive profile",
+            false,
+            json!({}),
+            &[],
+        ),
+        spec(
             "config.set",
             "Change one typed preference",
             false,

@@ -7,6 +7,32 @@ lock and source digests, screenshot hashes and the four background samples.
 The [dependency receipt](evidence/dependencies-2026-11-21.json) records the public
 Project Z default heads and the stable versions returned by crates.io.
 
+## 0.1.3 protocol and frontend integration
+
+The integrated protocol-profile implementation and its App, CLI, MCP, zuse and
+GUI routes passed `cargo test --locked --all-targets` with the default native
+GUI feature: 108 library tests, 3 CLI tests and 13 OBS component fixtures,
+**124 tests in total**. Format checking and the all-target headless check also
+passed. The [integration receipt](evidence/protocol-integration-2026-11-21.json)
+records the exact tested `src/**` hashes and Cargo lock; these identify the
+working tree separately from its base commit. This graph includes the public
+zuse-computer 0.5.0 source.
+
+The new cases exercise actual loopback HTTP refresh and Bilibili requests,
+immutable old client profiles, fixed source and credential boundaries,
+bounded responses, concurrent refreshes, failed refresh/cache retention,
+CSRF signature strategies and deflate responses. Frontend fixtures cover
+startup sequencing, demo/read-only/`--noupdate` suppression, local status,
+failed refresh followed by the version check, and account-context handling.
+No authenticated Bilibili request or native window was used in this gate.
+
+The earlier native Linux window check used `c831b2d6` and exposed delayed
+repainting after an in-page navigation click. The two drawing-loop fixes and
+the new interface-configuration page require their own final integrated
+native-window receipt. Windows/macOS installers and private update/restart
+probes similarly retain separate platform gates; a successful library test
+is not evidence that an installer ran.
+
 ## Update and component GUI fixtures
 
 The GUI update work based on `6a680149` passed

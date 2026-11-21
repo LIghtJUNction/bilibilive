@@ -1,0 +1,91 @@
+{
+  "status": "passed",
+  "started_at": "2026-11-21T17:40:02.023361+00:00",
+  "base_commit": "8728f1db833b1fd10ee328b1e855e2817efcb580",
+  "lock_sha256": "276df58f4fc49a1c52c8d8dbed7056dff863cecb26ce384a6f3e64e066d33c6a",
+  "source_files": {
+    "src/app.rs": "9b92dd266560314b24971be0b019011c46ee326f52a96c1d8f018ffdaa5977d1",
+    "src/auth.rs": "c5fd88b13fd41d494db1a18e494b6c911a0bc05de6bd84374f532ccfc8dabc59",
+    "src/bili.rs": "7aab55f1ff8ed296313f4c0e531018e644ead8e9cb8af1c04fc85ae999e3fd60",
+    "src/bundle.rs": "6c2f2541a59629dd685faaae2d84af9863d1191e79c1fbe7a1d9e5bb4dae3ae0",
+    "src/config.rs": "c75a362a64d95a97ad15379fd2c90e559756b82f93a46b8720883a403570dba1",
+    "src/convert.rs": "cab8e4086cdeb8c7cba4f516d165611afe5cfe25821669b401f58789aed6c420",
+    "src/danmaku.rs": "ee3c03adc9bd2b35a6c99ced6eb107b3b4b516949313ee316523b2961127632b",
+    "src/desktop.rs": "63d77cdad58d38722e23212dbb4049464497800da32a38822fff882ac761d7f8",
+    "src/gui.rs": "f2591a74075ee5b827b912c820e24c59632b6a68f97b5752a43110914267949f",
+    "src/http.rs": "111daac0a2389383893bea50a02bdc75070e91bfaea71c9787e1f9d122525bb9",
+    "src/lib.rs": "8ffffd2df8819872e2ec7846fee0ceaae42956f13f2c13794ca56eb6881b17d6",
+    "src/logging.rs": "53d08e62c768c66535f594b618b63ae113f2003e2328e81ae1f5d2e6a887646e",
+    "src/main.rs": "bf4d4304902d528de0eddddc10c4b34bb70adb813eff348dc6bec513b66a946b",
+    "src/mcp.rs": "d10824167556ed33896c91a2e17996f5717de687651d1b81423ab298f76d7bab",
+    "src/media/capture.rs": "036ea9e39e22d69ab556e7e7c570cad04a5f6848ccc19fbb7e9bdef224cdfc4f",
+    "src/media/limits.rs": "83e774cf214db648b4f02a6ce46d1206159cafd94a8be9fc0c317db4e8ab90f1",
+    "src/media/native.rs": "bf3cc8a1b4da078c83c4decb2eb2b26dd0239888f99b07e5cb811bfa2bac30ac",
+    "src/media/preview.rs": "fbacd8bbbcd9fe3f7d86ba41adc12d0ca61c84f38aa9c2758bb758c58489a64e",
+    "src/media/rtp.rs": "5c4cf65d6b655d44dbf7d17343afb063d22fcd18b08724dbd25bbe2e6be11891",
+    "src/media/schema.json": "58715e6c2029db6192c2e599e35537285f1ce5d7b3881bf6731137bac4b1a7ae",
+    "src/media/wire.rs": "2fb9e39052e620dbcf6d4473935c2454e20c56b9f54ed9bb20e839aac8f5e8b5",
+    "src/media.rs": "789eb6b2e0b09f3a2c34df5da9a72405553d030f436a6ba9f34f848b678c84ae",
+    "src/obs.rs": "3ce7d57c88b4a66131e4411bbbabd324d4c339f88a987d0c3ce5fca581b5f0e4",
+    "src/obs_observer.rs": "87fa7e288c323d2c47521cdf5e229a4eb286cfe50bcef0532d16566bce42477f",
+    "src/obs_plugin.rs": "66b910df2b85121521f4f823859d63f03efb0b557fca27359298e13d0ae40ddb",
+    "src/pk_session.rs": "30ac7f70e296ae1d7acfcff4ec492f5d1b180e2cf3e1bec106be29a4a003ef03",
+    "src/protocol_profile.rs": "6e2a6bd3d49a906f116547e13f7045db3f74c42b84c3f39c699baa1a5b692dd1",
+    "src/schema.rs": "e620e72ff001cfabd042448f28742788930489c587161b51a45e3a0c1b3d08b5",
+    "src/updater.rs": "d5a4ae70be9ea2eda74faf4385da1aca9908cf9c7a19535c2d9ef16d8101b22a",
+    "src/zuse_host.rs": "d5de922678f173bb5015c3984be682cdd963e9190d6946cbca417cd849f97b73"
+  },
+  "gates": [
+    {
+      "name": "format",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exit_code": 0,
+      "seconds": 0.407,
+      "log": "format.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "all-targets",
+      "command": [
+        "cargo",
+        "test",
+        "--locked",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 10.276,
+      "log": "all-targets.log",
+      "sha256": "347210189a226ec3a28d9aac7280a79ab254c91530b236413295c00b8f375d12"
+    },
+    {
+      "name": "headless",
+      "command": [
+        "cargo",
+        "check",
+        "--locked",
+        "--no-default-features",
+        "--all-targets"
+      ],
+      "exit_code": 0,
+      "seconds": 3.273,
+      "log": "headless.log",
+      "sha256": "7f3124dc9f25046a6b92bf85c526e922407a16eafa237babeb005291d539cb14"
+    }
+  ],
+  "finished_at": "2026-11-21T17:40:15.992232+00:00",
+  "test_counts": {
+    "library": 108,
+    "cli": 3,
+    "obs_plugin": 13,
+    "total": 124
+  },
+  "native_window_opened": false,
+  "live_bilibili_account_used": false,
+  "scope": "Protocol core and all frontend integration, using the default native GUI feature; exact source file hashes distinguish the uncommitted tested tree from its recorded base commit."
+}

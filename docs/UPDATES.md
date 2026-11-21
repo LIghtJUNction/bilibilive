@@ -4,7 +4,7 @@ bilibilive 将版本检查、下载和应用拆成三个明确步骤。打开 **
 
 ## 桌面更新
 
-普通 GUI 启动时按 `update_check` 偏好检查一次稳定版本。新配置默认开启，已有配置保存的关闭状态继续保留；设置页可以随时修改。`bilibilive gui --noupdate` 只暂停本次启动检查。演示和只读启动都跳过自动检查，只读模式仍允许点击“检查新版本”。
+普通 GUI 启动时按 `update_check` 偏好先刷新一次直播接口配置，再检查稳定版本。新配置默认开启，已有配置保存的关闭状态继续保留；设置页可以随时修改。`bilibilive gui --noupdate` 只暂停本次启动的这两项检查。演示和只读启动都跳过自动检查，只读模式仍允许点击“检查新版本”。接口配置刷新失败后，软件版本检查仍会继续。
 
 发现新版本后，侧栏会保留更新提示。点击“下载更新”才开始下载，进度显示在更新页；下载完成后继续等待“应用并重启”。应用前会再次验证这次检查选定的版本与文件，释放本地 OBS 观察器和 RTC／PK 媒体连接，再正常退出窗口。运行中的 OBS 和 Bilibili 直播间保留原状态。重启打开 GUI 并保留配置目录，不重复执行原来的开播、MCP 或其他命令。
 
@@ -21,7 +21,22 @@ bilibilive 将版本检查、下载和应用拆成三个明确步骤。打开 **
 
 Windows 安装器使用 `bilibilive-win-x64-Setup.exe`；macOS 按架构提供 `bilibilive-osx-x64-Setup.pkg` 和 `bilibilive-osx-arm64-Setup.pkg`。对应更新渠道是 `win-x64`、`osx-x64` 和 `osx-arm64`，各自拥有独立的 `releases.<channel>.json`。完整的 `*-Portable.zip` 也携带安装元数据和更新助手，解压后可在原目录更新；普通裸程序或早期归档不会因此自动获得更新能力。实际可下载的安装器、应用归档与媒体组件以[该版本的正式发布资产](https://github.com/LIghtJUNction/bilibilive/releases)为准。
 
-软件检查只读取官方发布元数据。Bilibili 请求常量与签名配置随经过审阅的源码一起发布，不从远端 JSON 热替换。上游三个更新任务的具体触发关系记录在 [StartLive 审计](STARTLIVE_AUDIT.md#update-triggers-and-compatibility-choices)。
+软件检查读取官方发布元数据。直播接口配置使用下面的独立缓存与刷新操作。上游三个更新任务的具体触发关系记录在 [StartLive 审计](STARTLIVE_AUDIT.md#update-triggers-and-compatibility-choices)。
+
+## 直播接口配置
+
+**偏好设置 → 直播接口配置** 显示当前请求配置的版本、来源和刷新结果。程序读取 [StartLive 官方的 version.json](https://raw.githubusercontent.com/Radekyspec/StartLive/refs/heads/dev/startlive/resources/version.json)，支持应用键、公开签名常量、构建号、版本、两组请求头及开停播 CSRF 签名策略这八个字段。字段不能改变 Bilibili 请求目的地址，也不能注入账号 Cookie、Authorization 或代理认证头。
+
+每个配置目录拥有独立缓存。文件经过结构、摘要、请求头和大小检查后原子保存；其他进程在创建下一个请求客户端时也能读取新配置。未取得有效缓存时使用应用内置配置，刷新失败则保留当前有效配置。每个正在使用的客户端持有完整的不可变配置，因此一次请求的签名、请求头和账号信息不会在刷新中途混用。
+
+```sh
+bilibilive protocol status
+bilibilive protocol refresh
+bilibilive --read-only protocol status
+bilibilive zuse eval 'bilibilive.protocol.status()'
+```
+
+`protocol.status` 只读取本地状态；`protocol.refresh` 访问固定的官方 HTTPS 地址，不跟随重定向，不携带 Bilibili 账号凭据，并按网络偏好使用代理。响应最多 32 KiB，请求时限不超过 30 秒。状态结果包含来源、版本、构建号、摘要、缓存路径和错误摘要，不输出完整签名参数。只读模式禁止刷新；`--noupdate` 暂停自动刷新后，普通模式仍可手动刷新。
 
 ## CLI、MCP 与共享会话
 

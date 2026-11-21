@@ -24,6 +24,7 @@ application-window and OBS-module runtime acceptance need their own receipts.
 | Capability | Current behavior | Verification boundary |
 |---|---|---|
 | Startup version notice | Once per ordinary GUI launch when `update_check` is enabled; `--noupdate`, demo and read-only startup skip it | Controller fixtures cover each gate and prevent repeated checks |
+| Protocol profile refresh | Fixed official StartLive JSON, all eight profile fields, bounded validated cache, immutable per-client snapshots and shared status/refresh operations | Offline HTTP fixtures verify profile changes and credential isolation; real account compatibility needs platform acceptance |
 | Managed update | Explicit check, staged download, progress, then explicit apply/restart for a recognized Velopack installation, including a complete Velopack Portable.zip | Package identity and digest verification are required before applying; Windows/macOS upgrade behavior needs platform acceptance |
 | Package-manager update | Cargo and AUR retain ownership; the UI shows the corresponding manual command | The application never invokes system package-manager elevation |
 | Bare executable/archive update | Release location and installation-channel guidance are displayed | An executable without recognized update metadata and helper is not overwritten in place |
@@ -139,12 +140,12 @@ two-party broadcast, capture and media-exchange acceptance run.
 
 ## Deliberate behavioral differences
 
-- Bilibili protocol constants and request profiles are compiled and reviewed
-  with the application. StartLive's separate remote constant-refresh worker
-  is not implemented. Software version checking and verified application
-  packages provide the update path described in [UPDATES.md](UPDATES.md).
+- Protocol refresh uses the official StartLive JSON directly. It retains TLS
+  verification, a fixed source and a validated local cache; a failed refresh
+  preserves the last good profile. An in-flight client keeps its complete
+  previous snapshot, while new clients read the current cache.
 - Application downloads and apply/restart are separate explicit actions.
-  `--noupdate` suppresses this launch's automatic software check; the audited
+  `--noupdate` suppresses this launch's automatic protocol and software checks; the audited
   upstream flag suppresses its constants/version branch while its Velopack
   controller starts independently.
 - Looking up an existing stream address uses `FetchWebUpStreamAddr` and does

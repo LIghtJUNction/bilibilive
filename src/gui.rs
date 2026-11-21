@@ -38,6 +38,7 @@ enum Page {
     Titles,
     Appearance,
     Components,
+    Protocol,
 }
 
 impl Page {
@@ -55,6 +56,7 @@ impl Page {
             Self::Titles => "最近使用的标题",
             Self::Appearance => "外观与桌面",
             Self::Components => "更新与组件",
+            Self::Protocol => "直播接口配置",
         }
     }
     fn eyebrow(self) -> &'static str {
@@ -71,6 +73,7 @@ impl Page {
             Self::Titles => "PICK UP WHERE YOU LEFT OFF",
             Self::Appearance => "A SPACE OF YOUR OWN",
             Self::Components => "READY FOR WHAT IS NEXT",
+            Self::Protocol => "KEEP YOUR CONNECTION READY",
         }
     }
 }
@@ -195,6 +198,10 @@ struct Desktop {
     account_context_seen: bool,
     no_update: bool,
     startup_update_handled: bool,
+    startup_protocol_handled: bool,
+    protocol_profile: Value,
+    protocol_pending: bool,
+    protocol_error: String,
     updates: Value,
     update_pending: String,
     update_error: String,
@@ -679,6 +686,10 @@ impl Desktop {
             account_context_seen: false,
             no_update: false,
             startup_update_handled: false,
+            startup_protocol_handled: false,
+            protocol_profile: json!({}),
+            protocol_pending: false,
+            protocol_error: String::new(),
             updates: json!({}),
             update_pending: String::new(),
             update_error: String::new(),
@@ -703,7 +714,7 @@ impl Desktop {
         let restricted = (self.demo || self.read_only)
             && matches!(
                 method,
-                "updates.download" | "updates.apply" | "obs.plugin.install"
+                "updates.download" | "updates.apply" | "obs.plugin.install" | "protocol.refresh"
             );
         if restricted || self.update_apply_requested || self.quit_requested {
             if let Some(path) = cleanup {
@@ -711,7 +722,7 @@ impl Desktop {
             }
             self.notice(
                 if restricted {
-                    "演示或只读模式不会下载、安装或应用更新。"
+                    "演示或只读模式不会下载、安装、应用更新或修改协议参数。"
                 } else {
                     "正在应用更新，请等待应用正常退出。"
                 },
@@ -722,6 +733,7 @@ impl Desktop {
         if self.pending >= 12
             || (method.starts_with("updates.") && !self.update_pending.is_empty())
             || (method.starts_with("obs.plugin.") && self.plugin_pending)
+            || (method.starts_with("protocol.") && self.protocol_pending)
             || (method == "updates.apply" && self.pending != 0)
         {
             if let Some(path) = cleanup {
@@ -746,6 +758,9 @@ impl Desktop {
                 } else if method.starts_with("obs.plugin.") {
                     self.plugin_pending = true;
                     self.plugin_error.clear();
+                } else if method.starts_with("protocol.") {
+                    self.protocol_pending = true;
+                    self.protocol_error.clear();
                 }
                 true
             }
@@ -770,12 +785,15 @@ impl Desktop {
             changed = true;
             self.pending = self.pending.saturating_sub(1);
             let method = response.method.as_str();
-            let component_operation =
-                method.starts_with("updates.") || method.starts_with("obs.plugin.");
+            let component_operation = method.starts_with("updates.")
+                || method.starts_with("obs.plugin.")
+                || method.starts_with("protocol.");
             if method.starts_with("updates.") {
                 self.update_pending.clear();
             } else if method.starts_with("obs.plugin.") {
                 self.plugin_pending = false;
+            } else if method.starts_with("protocol.") {
+                self.protocol_pending = false;
             }
             if let Ok(value) = &response.result
                 && !component_operation
@@ -836,6 +854,8 @@ impl Desktop {
                         self.update_apply_requested = false;
                     } else if method.starts_with("obs.plugin.") {
                         self.plugin_error = error.clone();
+                    } else if method.starts_with("protocol.") {
+                        self.protocol_error = error.clone();
                     }
                     if method == "auth.qr.poll" {
                         self.qr_message = error.clone();
@@ -859,6 +879,13 @@ impl Desktop {
                 Ok(value) => {
                     let data = payload(&value).clone();
                     match method {
+                        "protocol.status" | "protocol.refresh" => {
+                            self.protocol_profile = data;
+                            self.protocol_error = text(&self.protocol_profile, &["last_error"]);
+                            if method == "protocol.refresh" && crate::app::is_success(&value) {
+                                self.notice("直播接口配置已刷新，后续请求将使用新配置。", true);
+                            }
+                        }
                         "updates.check" | "updates.status" | "updates.download"
                         | "updates.apply" => {
                             let was_downloaded = self.updates["phase"] == "downloaded";
@@ -1290,6 +1317,7 @@ impl Desktop {
                             | "face.poll"
                             | "updates.status"
                             | "obs.plugin.status"
+                            | "protocol.status"
                     ) {
                         let complete = crate::app::is_success(&value)
                             && (!method.starts_with("updates.")
@@ -1641,6 +1669,16 @@ impl Desktop {
             self.verification_created.is_some(),
             self.pending,
         );
+        if !self.startup_protocol_handled && self.config_loaded && self.pending == 0 {
+            self.startup_protocol_handled = true;
+            if !self.demo
+                && !self.read_only
+                && !self.no_update
+                && self.config["update_check"] == true
+            {
+                self.request_protocol("protocol.refresh");
+            }
+        }
         if !self.startup_update_handled && self.config_loaded && self.pending == 0 {
             self.startup_update_handled = true;
             if !self.demo
@@ -1828,6 +1866,9 @@ impl Desktop {
                     self.submit("obs.plugin.status", json!({}));
                 }
             }
+            Page::Protocol => {
+                self.request_protocol("protocol.status");
+            }
             Page::Accounts => self.submit("account.list", json!({})),
             Page::Obs => self.submit("obs.status", json!({})),
             Page::Pk => self.submit("pk.status", json!({})),
@@ -1971,6 +2012,7 @@ impl Desktop {
                 Page::Titles => self.titles_page(canvas, ui, x, content_width),
                 Page::Appearance => self.appearance_page(canvas, ui, x, content_width),
                 Page::Components => self.components_page(canvas, ui, x, content_width),
+                Page::Protocol => self.protocol_page(canvas, ui, x, content_width),
             }
         } else {
             self.verification_panel(canvas, ui, x, content_width, height);
@@ -3845,6 +3887,16 @@ impl Desktop {
         ) {
             self.activate(Page::Components);
         }
+        if ui.button(
+            canvas,
+            829,
+            Rect::new(x + 348., 643., 132., 39.),
+            "直播接口配置",
+            ButtonStyle::Quiet,
+            true,
+        ) {
+            self.activate(Page::Protocol);
+        }
         canvas.text(
             "用 Rust 与 Project Z 构建。",
             x + w - 196.,
@@ -3924,6 +3976,175 @@ impl Desktop {
         self.advanced_args = "{}".into();
         self.advanced_output = serde_json::to_string_pretty(result).unwrap_or_default();
         self.activate(Page::Advanced);
+    }
+
+    fn request_protocol(&mut self, method: &str) -> bool {
+        if !matches!(method, "protocol.status" | "protocol.refresh") {
+            return false;
+        }
+        if self.demo {
+            if method == "protocol.status" {
+                self.protocol_profile = demo_response(method).unwrap_or_default();
+                return true;
+            }
+            self.notice("演示模式使用离线配置，不会连接网络或写入缓存。", false);
+            return false;
+        }
+        if method == "protocol.refresh" && self.read_only {
+            self.notice("只读模式可查看当前配置，不会刷新或写入缓存。", false);
+            return false;
+        }
+        let submitted = self.submit_cleanup(method, json!({}), None);
+        if submitted && method == "protocol.refresh" {
+            self.startup_protocol_handled = true;
+        }
+        submitted
+    }
+
+    fn protocol_page(&mut self, canvas: &mut Canvas<'_>, ui: &mut Ui, x: f32, w: f32) {
+        canvas.text("保持开播与 PK 接口兼容。", x, 120., 13, false, MUTED);
+        if ui.button(
+            canvas,
+            1400,
+            Rect::new(x + w - 116., 108., 116., 34.),
+            "返回偏好设置",
+            ButtonStyle::Quiet,
+            true,
+        ) {
+            self.activate(Page::Settings);
+        }
+        canvas.rect(Rect::new(x, 164., w, 280.), 18., PANEL);
+        canvas.text("当前直播接口配置", x + 24., 187., 18, true, INK);
+        let version = text(&self.protocol_profile, &["version"]);
+        let build = text(&self.protocol_profile, &["build"]);
+        canvas.ellipsis(
+            &if version.is_empty() {
+                "正在读取本地配置…".to_owned()
+            } else {
+                format!("{version}  ·  build {build}")
+            },
+            x + 24.,
+            228.,
+            w - 48.,
+            16,
+            true,
+            INK,
+        );
+        let source = text(&self.protocol_profile, &["source"]);
+        let source_label = match source.as_str() {
+            "demo" => "离线演示配置",
+            "builtin" | "built-in" | "embedded" => "应用内置配置",
+            "cache" | "cached" => "已保存的有效配置",
+            "remote" | "upstream" | "official" => "上游官方项目的有效配置",
+            value if value == crate::protocol_profile::SOURCE_URL => {
+                "StartLive 官方接口配置（已缓存）"
+            }
+            _ => "已验证的直播接口配置",
+        };
+        canvas.text(source_label, x + 24., 263., 12, false, MUTED);
+        canvas.ellipsis(
+            "刷新后保存到本地，供后续直播请求使用。已有连接保持原配置。",
+            x + 24.,
+            294.,
+            w - 48.,
+            12,
+            false,
+            MUTED,
+        );
+        let message = if self.protocol_pending {
+            "正在处理直播接口配置…"
+        } else if !self.protocol_error.is_empty() {
+            &self.protocol_error
+        } else if self.demo {
+            "演示模式不会访问网络或写入缓存。"
+        } else if self.read_only {
+            "只读模式可查看当前配置；刷新已关闭。"
+        } else {
+            "刷新失败时保留当前有效配置，也可以稍后重试。"
+        };
+        canvas.ellipsis(
+            message,
+            x + 24.,
+            330.,
+            w - 48.,
+            11,
+            false,
+            if self.protocol_error.is_empty() {
+                MUTED
+            } else {
+                RED
+            },
+        );
+        let idle = self.pending == 0;
+        if ui.button(
+            canvas,
+            1401,
+            Rect::new(x + 24., 385., 132., 37.),
+            "刷新接口配置",
+            ButtonStyle::Primary,
+            idle && !self.demo && !self.read_only,
+        ) {
+            self.request_protocol("protocol.refresh");
+        }
+        if ui.button(
+            canvas,
+            1402,
+            Rect::new(x + 168., 385., 132., 37.),
+            "读取本地状态",
+            ButtonStyle::Secondary,
+            idle,
+        ) {
+            self.request_protocol("protocol.status");
+        }
+        if ui.button(
+            canvas,
+            1403,
+            Rect::new(x + w - 126., 385., 102., 37.),
+            "查看详情",
+            ButtonStyle::Quiet,
+            true,
+        ) {
+            self.component_details("protocol.status", &self.protocol_profile.clone());
+        }
+        canvas.rect(Rect::new(x, 466., w, 164.), 18., PANEL);
+        canvas.text("自动检查", x + 24., 489., 17, true, INK);
+        canvas.ellipsis(
+            "启动时检查软件版本与直播接口配置。",
+            x + 24.,
+            529.,
+            w - 160.,
+            12,
+            false,
+            MUTED,
+        );
+        let enabled = self.config["update_check"] == true;
+        if ui.button(
+            canvas,
+            1404,
+            Rect::new(x + w - 110., 520., 86., 33.),
+            if enabled { "已开启" } else { "已关闭" },
+            if enabled {
+                ButtonStyle::Primary
+            } else {
+                ButtonStyle::Secondary
+            },
+            idle && !self.demo && !self.read_only,
+        ) {
+            self.set("update_check", json!(!enabled));
+        }
+        canvas.ellipsis(
+            if self.no_update {
+                "本次启动已由 --noupdate 暂停自动检查，保存的偏好保持不变。"
+            } else {
+                "检查软件版本后，下载和应用安装包仍由你选择。"
+            },
+            x + 24.,
+            584.,
+            w - 48.,
+            11,
+            false,
+            MUTED,
+        );
     }
 
     fn components_page(&mut self, canvas: &mut Canvas<'_>, ui: &mut Ui, x: f32, w: f32) {
@@ -4089,9 +4310,9 @@ impl Desktop {
         let startup_check = self.config["update_check"] == true;
         canvas.text(
             if self.no_update {
-                "启动时检查版本（本次已由 --noupdate 暂停）"
+                "启动时检查版本与接口配置（本次已暂停）"
             } else {
-                "启动时检查版本"
+                "启动时检查版本与接口配置"
             },
             x + 24.,
             350.,
@@ -5076,6 +5297,8 @@ fn action_label(method: &str) -> &str {
         "rtc.local.preview" => "预览本机 OBS 画面",
         "rtc.local.preview.stop" => "关闭本机 OBS 预览",
         "updates.check" => "检查最新稳定版本",
+        "protocol.status" => "查看直播接口配置",
+        "protocol.refresh" => "刷新直播接口配置",
         "updates.status" => "查看更新状态",
         "updates.download" => "下载应用更新",
         "updates.apply" => "应用更新并退出",
@@ -5124,6 +5347,11 @@ fn demo_response(method: &str) -> Result<Value, String> {
             "installation":{"kind":"demo"},"update_available":false,
             "can_download":false,"can_apply":false,"progress":0
         })),
+        "protocol.status" => Ok(json!({
+            "source":"demo","version":"8.7.0.11081","build":"11081",
+            "last_error":null,"updated_at":null,"cache_path":null,
+            "message":"演示模式使用离线配置，不会访问网络或写入缓存。"
+        })),
         "obs.plugin.status" => Ok(json!({
             "state":"unavailable","installed":false,"verified":false,"can_install":false,
             "restart_required":false,"message":"演示模式不会检查或修改实际 OBS 插件文件。"
@@ -5168,7 +5396,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_version_check_runs_once_only_when_enabled_and_allowed() {
+    fn startup_protocol_and_version_checks_run_once_only_when_enabled_and_allowed() {
         for demo in [false, true] {
             for read_only in [false, true] {
                 for no_update in [false, true] {
@@ -5184,12 +5412,20 @@ mod tests {
                         assert_eq!(
                             queued,
                             if expected {
-                                vec!["updates.check"]
+                                vec!["protocol.refresh"]
                             } else {
                                 vec![]
                             }
                         );
                         if expected {
+                            component_reply(
+                                &mut desktop,
+                                &responses,
+                                "protocol.refresh",
+                                json!({"version":"8.7.0.11081","build":"11081"}),
+                            );
+                            desktop.tick();
+                            assert_eq!(requests.try_recv().unwrap().method, "updates.check");
                             component_reply(
                                 &mut desktop,
                                 &responses,
@@ -5218,6 +5454,65 @@ mod tests {
         assert!(requests.try_recv().is_err());
         assert_eq!(desktop.updates["installation"]["kind"], "demo");
         assert_eq!(desktop.plugin["can_install"], false);
+    }
+
+    #[test]
+    fn protocol_page_reads_status_and_rejects_refresh_in_demo_and_read_only_modes() {
+        for read_only in [false, true] {
+            let (mut desktop, requests, responses) = component_fixture(false, read_only);
+            desktop.activate(Page::Protocol);
+            assert_eq!(requests.try_recv().unwrap().method, "protocol.status");
+            assert!(requests.try_recv().is_err());
+            component_reply(
+                &mut desktop,
+                &responses,
+                "protocol.status",
+                json!({"source":"builtin","version":"8.7.0.11081"}),
+            );
+            assert_eq!(desktop.request_protocol("protocol.refresh"), !read_only);
+            if read_only {
+                assert!(requests.try_recv().is_err());
+            } else {
+                assert_eq!(requests.try_recv().unwrap().method, "protocol.refresh");
+                assert!(desktop.startup_protocol_handled);
+            }
+        }
+        let (mut desktop, requests, _) = component_fixture(true, false);
+        desktop.activate(Page::Protocol);
+        assert_eq!(desktop.protocol_profile["source"], "demo");
+        assert!(!desktop.request_protocol("protocol.refresh"));
+        assert!(requests.try_recv().is_err());
+    }
+
+    #[test]
+    fn failed_protocol_refresh_preserves_the_current_view_and_allows_version_check() {
+        let (mut desktop, requests, responses) = component_fixture(false, false);
+        desktop.config = json!({"update_check":true});
+        desktop.load_config();
+        let previous = json!({"source":"cache","version":"8.7.0.11081","build":"11081"});
+        desktop.protocol_profile = previous.clone();
+        desktop.tick();
+        assert_eq!(requests.try_recv().unwrap().method, "protocol.refresh");
+        responses
+            .send(Response {
+                method: "protocol.refresh".into(),
+                result: Err("fixture transport unavailable".into()),
+            })
+            .unwrap();
+        desktop.receive();
+        assert_eq!(desktop.protocol_profile, previous);
+        assert!(!desktop.protocol_pending);
+        assert!(desktop.protocol_error.contains("transport unavailable"));
+        desktop.tick();
+        assert_eq!(requests.try_recv().unwrap().method, "updates.check");
+        component_reply(
+            &mut desktop,
+            &responses,
+            "updates.check",
+            json!({"phase":"up_to_date"}),
+        );
+        desktop.tick();
+        assert!(requests.try_recv().is_err());
     }
 
     #[test]
@@ -5422,7 +5717,12 @@ mod tests {
             let (mut desktop, requests, _) = component_fixture(demo, read_only);
             desktop.plugin = json!({"can_install":true});
             assert!(!desktop.install_plugin());
-            for method in ["updates.download", "updates.apply", "obs.plugin.install"] {
+            for method in [
+                "updates.download",
+                "updates.apply",
+                "obs.plugin.install",
+                "protocol.refresh",
+            ] {
                 assert!(!desktop.submit_cleanup(method, json!({}), None));
             }
             assert!(requests.try_recv().is_err());
@@ -5458,6 +5758,13 @@ mod tests {
             }),
         );
         assert_eq!(desktop.updates["latest"], "9.9.9");
+        component_reply(
+            &mut desktop,
+            &responses,
+            "protocol.status",
+            json!({"version":"8.8.0.12000","_context":{"generation":11}}),
+        );
+        assert_eq!(desktop.protocol_profile["version"], "8.8.0.12000");
         assert_eq!(desktop.account_generation, 12);
     }
 

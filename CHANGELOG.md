@@ -2,6 +2,14 @@
 
 ## 0.1.3
 
+- Add the **Live interface configuration** page and shared
+  `protocol.status/refresh` operations. Refresh all eight upstream request
+  profile fields from the official StartLive JSON, retain validated local
+  cache data on failure, and keep an immutable profile for each active
+  client. Automatic protocol and release checks share the saved preference
+  and `--noupdate`; demo and read-only modes do not refresh the cache.
+- Redraw immediately after navigating through in-page controls, so the
+  destination page appears without requiring another mouse or keyboard event.
 - Add release packaging for Windows `Setup.exe`, macOS `Setup.pkg` and `.app`,
   complete Velopack portable archives, and separate platform/architecture
   update feeds. A complete portable installation retains its update helper
@@ -43,11 +51,14 @@
 - Refresh the development lock to the public zuse-computer 0.5.0 source.
   Registry staging continues to require a matching published package and
   complete source verification.
+- Schedule grouped Dependabot checks for Rust dependencies and release
+  actions. Project Z Git declarations remain on their default branches;
+  dependency updates retain the local validation and explicit release gates.
 
-The recorded Linux integration gate at `535d6f36` passed 116 tests with the
-native GUI backend linked. That snapshot precedes the zuse 0.5.0 dependency
-refresh and is not evidence of Windows/macOS execution. The new installer,
-window, media and OBS gates need their own platform receipts; see
+The current Linux protocol/frontend integration gate passed 124 tests with
+the native GUI backend linked and zuse-computer 0.5.0 in the dependency graph.
+Its receipt records the exact tested source file and lock hashes. Installer,
+window, media and OBS execution retain separate platform receipts; see
 [VALIDATION.md](docs/VALIDATION.md) and [UPDATES.md](docs/UPDATES.md).
 Real Bilibili account/broadcast flows, two-party PK and physical GPU encoding
 have not been validated in this development cycle.

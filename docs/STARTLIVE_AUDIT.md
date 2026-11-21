@@ -101,14 +101,19 @@ control this separate timer. These triggers are visible in
 `PySide/window/main_window.py`, `PySide/updater/update_controller.py` and
 `PySide/updater/update_worker.py`.
 
-Bilibilive checks the stable application release once when the saved
-`update_check` preference permits it. `--noupdate` suppresses that launch's
-automatic check. Download and apply remain explicit operations; Cargo and AUR
-ownership is retained, and an installer package is applied only after its
-identity and contents are verified. Bilibili protocol profiles remain compiled
-and reviewed with the application source; the upstream remote constant-refresh
-mechanism is intentionally not reproduced. [UPDATES.md](UPDATES.md) describes
-the current user flow and installation-channel boundaries.
+Bilibilive refreshes the protocol profile and then checks the stable application
+release once when the saved `update_check` preference permits it. `--noupdate`
+suppresses both automatic jobs for that launch. `protocol.refresh` reads the
+same eight-field document from the official upstream source, validates it and
+atomically stores a per-configuration-directory cache. New Bilibili clients
+use a complete profile snapshot; existing requests and media event clients
+retain the snapshot with which they started. A failed refresh preserves the
+last good data and does not block the subsequent software version check.
+
+Download and apply remain explicit operations; Cargo and AUR ownership is
+retained, and an installer package is applied only after its identity and
+contents are verified. [UPDATES.md](UPDATES.md) describes the user flow and
+installation-channel boundaries.
 
 The current upstream PK system spans roughly 12,000 lines across its core,
 worker and controller modules, plus the OBS capture plugin. Registering HTTP
@@ -120,6 +125,9 @@ The app signer sorts fields lexicographically and hashes the encoded payload
 plus the public LiveHime app secret using MD5. The ordinary request encoding
 uses form-style `+` for spaces. Native PK requests use `%20` and preserve
 `!'()*~`. These encodings must not be interchanged after signing.
+The start/stop rows below describe the embedded profile's defaults; the
+validated `start_ac` and `stop_ac` fields select whether each operation includes
+CSRF values before signing or appends them afterward.
 
 | Operation | Method and path | Signing details |
 |---|---|---|

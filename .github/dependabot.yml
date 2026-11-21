@@ -1,0 +1,23 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: daily
+      time: "09:17"
+      timezone: Asia/Taipei
+    versioning-strategy: increase
+    open-pull-requests-limit: 5
+    groups:
+      rust-dependencies:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: daily
+      time: "09:37"
+      timezone: Asia/Taipei
+    open-pull-requests-limit: 5
+    groups:
+      release-actions:
+        patterns: ["*"]
