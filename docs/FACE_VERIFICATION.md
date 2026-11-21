@@ -4,6 +4,34 @@ bilibilive prepares Bilibili's verification session before presenting a QR
 code. A successful phone scan alone does not start the broadcast: the platform
 must confirm that the identity check has passed.
 
+**Acceptance status, 2026-11-22 (Asia/Taipei): pending.** The installed
+`0.1.3-0.2` candidate validates the saved account and obtains a valid face
+challenge. A successful phone verification followed by an actual broadcast
+has not yet been observed on this candidate. The session changes below correct
+a confirmed difference from StartLive; their effect on the reported phone
+failure still needs that check. The
+[session compatibility record](evidence/session-compatibility-2026-11-22.json)
+identifies the source, executable and observations.
+
+## What each result establishes
+
+Account authentication, face verification and broadcasting are separate
+results. The following values must not be treated as interchangeable:
+
+| Observed result | Meaning |
+|---|---|
+| `auth.validate`: `authenticated=true` | The saved account credentials are valid |
+| V2 `moreInfo`: `code=0`, `realname.status=1` | The challenge can read the account's existing realname information |
+| V2 `validatePreCheck`: `data.status=1` | This face challenge has passed |
+| V1 `IsUserIdentifiedByFaceAuth`: `is_identified=true` or `1` | This V1 face challenge has passed |
+| Resumed `live.start`: `status=live`, then room `live_status=1` | The platform has started the requested live room |
+
+The mobile page can display an error while V2 polling still returns
+`data.status=0`. That value means the challenge is still waiting; it does not
+authorize broadcast continuation. The shared implementation is in
+[`src/bili.rs`](../src/bili.rs), with account and continuation guards in
+[`src/app.rs`](../src/app.rs).
+
 ## Upstream contract
 
 The audited reference is
@@ -39,13 +67,39 @@ available for callers that need the individual protocol operations.
 
 ## Device and account continuity
 
+StartLive maintains an application device ID separately from Bilibili's
+browser device cookies. Its
+[`gen_buvid`](https://github.com/Radekyspec/StartLive/blob/0b5a9830a8305d9cd6ac15378e46bee05b894c11/startlive/core/sign/gen_buvid.py)
+and
+[`create_session`](https://github.com/Radekyspec/StartLive/blob/0b5a9830a8305d9cd6ac15378e46bee05b894c11/startlive/core/app_state/__init__.py)
+use a persistent application value for the `buvid` header, while account
+cookies can contain a different SPI-issued `buvid3`. The earlier bilibilive
+client used the account's `buvid3` for both purposes.
+
+The corrected App stores its application device ID once in the profile's
+`device.json`. Creation is protected by the profile lock and an atomic write.
+The same value is passed to every CLI, GUI and other shared-App client,
+including after a restart or account change. Preference writes do not rotate
+it, and public configuration snapshots omit it. The implementation is in
+[`src/config.rs`](../src/config.rs) and [`src/app.rs`](../src/app.rs).
+
+| Value | Source | Request use |
+|---|---|---|
+| Application device ID | Generated once per profile, in StartLive's UUID/PID format | Stable `buvid` header; fallback `buvid3` when no account device cookie exists |
+| Browser device cookies | Bilibili's official SPI/session refresh | Authenticated Cookie header, including `buvid3` and `buvid4` |
+
 Passport QR login can return valid account cookies without the device cookies
 needed by subsequent broadcast requests. Before the first start, the shared
 App initializes missing or empty `buvid3`/`buvid4` through the existing official
 session-refresh path and persists the result in the same credential store.
 It then creates the broadcast client from the saved cookie. Later polling
-clients use that same saved device identity. Existing complete device cookies
-are retained.
+clients reuse those cookies and the separate application device ID. Existing
+complete device cookies are retained.
+
+Anonymous login QR requests carry public application/device metadata, as in
+StartLive, without inheriting saved account credentials. APP and WEB requests
+use their respective protocol header profiles; APP requests no longer receive
+additional browser Origin and Referer headers.
 
 Initialization and persistence finish before any delay change or start
 request. If either fails, the operation stops and reports the error.
@@ -83,18 +137,52 @@ fixtures cover cancellation, old responses and continuation with changed
 on-screen room preferences. An App fixture checks account changes before a
 verified retry reaches any network request.
 
-The [Linux validation record](VALIDATION.md)
-identifies the tested runtime commit and the 139 passing tests. These tests
-use synthetic credentials. Phone-side identity verification and a real
-authenticated broadcast remain untested for this fix.
+The current Linux candidate passed **142 tests** with Rust 1.100.0 and
+`cargo test --locked --offline`: 126 library tests, 3 CLI tests and 13
+integration tests. Formatting and the optimized release build also passed.
+The new checks cover persistent application identity, concurrent first
+creation, account/anonymous isolation, and native-header continuity after SPI
+refresh and frontend recreation. These automated checks use synthetic
+credentials. The earlier 139-test result in
+[VALIDATION.md](VALIDATION.md) belongs to the preceding runtime snapshot.
+
+The following real-account observations have a narrower scope than a complete
+acceptance pass. Relative times are measured from the captured QR image.
+
+| Installed build | Observation | Conclusion |
+|---|---|---|
+| `0.1.3-0.1` | Saved account authenticated; `live.start` requested V2 (`60043`) verification | Account authentication worked; opening the room still required verification |
+| `0.1.3-0.1` | Fresh `moreInfo` returned `code=0`, existing realname status `1`, and a challenge account matching the saved account | The challenge initialized successfully |
+| `0.1.3-0.1` | User reported entering the phone's camera/face screen, followed by authentication failure; at 44.61 s, `moreInfo` still succeeded and polling remained `status=0` | This attempt did not fail because its QR had already expired; platform verification had not completed |
+| `0.1.3-0.2` | Running executable matched the recorded build; `auth.validate` returned `authenticated=true` | The updated installation could authenticate the saved account |
+| `0.1.3-0.2` | At 0.78 s, `moreInfo` succeeded and polling returned `status=0` | The corrected session obtained a valid new challenge |
+| `0.1.3-0.2` | No phone result was received before the check at 125.07 s; `moreInfo` then reported expiry and polling returned `status=2` | The challenge expired while awaiting feedback; the candidate's phone-verification outcome remains unconfirmed |
+
+These observations do not establish that mixing device identities caused the
+original phone failure, or that separating them has resolved it. A valid new
+challenge, passing fixtures, and an expired unanswered challenge do not
+replace the required real-account result.
 
 To check the installed application:
 
-1. Close the old verification window and reopen the updated application.
-2. Request a fresh start, then scan the new QR code with the Bilibili mobile
-   application.
-3. Complete the steps requested by Bilibili. The desktop continues only after
-   the platform confirms verification.
-4. If the phone still reports an error, record its visible message and the
-   desktop operation result. Keep cookies, QR tokens and stream keys out of
-   the report.
+1. Confirm that the running executable matches the candidate receipt and that
+   the selected account validates successfully.
+2. When the phone is ready, cancel any expired challenge and request a fresh
+   start. Scan it with the Bilibili mobile application using the intended
+   account, then complete the requested verification.
+3. Confirm a passed challenge from the platform. For V2 this requires
+   `data.status=1`; for V1 it requires `is_identified=true` or `1`.
+4. Observe the desktop automatically continue the original start request.
+   Check `live.start` success and the room's actual `live_status=1`, then
+   obtain the user's confirmation that login and broadcasting worked.
+
+Acceptance passes only after all four steps. Formal publication also requires
+the native packaging gates to pass; a local installation or a workflow with
+`publish=false` is not a published release.
+
+If the phone reports an error, record its visible wording and whether the
+camera/face screen opened, together with the current sanitized platform
+status. Do not include cookies, QR URLs or tokens, stream keys, or realname
+response bodies: `moreInfo` can contain personal identity information. An
+expired challenge should be replaced only when the user is ready to complete
+the next attempt.

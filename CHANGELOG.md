@@ -2,6 +2,17 @@
 
 ## 0.1.3
 
+Release status as of 2026-11-22: **not published; real-account acceptance is
+pending**. The local `0.1.3-0.2` package is an acceptance candidate.
+
+- Persist an application device ID independently of Bilibili's SPI device
+  cookies, matching StartLive's session model. Reuse the native `buvid`
+  header across frontend recreation, restarts and account changes; preserve
+  SPI values in the authenticated Cookie header. Anonymous QR requests now
+  carry public device metadata without saved account credentials, and APP
+  and WEB requests use their respective header profiles.
+- Replace the application and default tray logos with a minimal open playback
+  mark. The scalable icon and tray drawing remain text source in Git.
 - Prepare face verification in the shared broadcast path: initialize missing
   device cookies, register V2 vouchers, and report the original platform
   challenge before displaying its QR code. Preserve the initiating account,
@@ -57,6 +68,15 @@
   software media round trips and a private Velopack download/apply/restart
   probe. The probe updates a uniquely named fixture, then checks the new
   process version and executable hash; helper launch alone is not a pass.
+- Repair native dependency builds by backporting Intel's reviewed oneVPL
+  MinGW compiler guard into an isolated build copy, with source and patched
+  header checksums, and using VideoLAN's official GitHub mirror for dav1d.
+- Disable FFplay terminal status output explicitly with `-nostats` in media
+  smoke checks. Error-level reporting and rejection of actual error output
+  remain enabled. The prior failure contained only six status-line control
+  bytes whose SHA-256 matched the original CI log; the
+  [regression fixture](scripts/test_native_runtime.py) checks both this case
+  and rejection of an actual window-creation error.
 - Refresh the development lock to the public zuse-computer 0.5.0 source.
   Registry staging continues to require a matching published package and
   complete source verification.
@@ -64,8 +84,23 @@
   actions. Project Z Git declarations remain on their default branches;
   dependency updates retain the local validation and explicit release gates.
 
-The Linux regression gate for the face-verification and interaction fixes
-passed **139 tests**: 123 library tests, 3 CLI tests and 13 integration tests,
+The session-compatibility candidate passed **142 tests**: 126 library tests,
+3 CLI tests and 13 integration tests, using Rust 1.100.0 and
+`cargo test --locked --offline`. Formatting and the optimized release build
+also passed. The installed candidate authenticated the saved account and
+obtained a valid new face challenge. That challenge expired while awaiting
+the user's phone result, so successful phone verification and broadcasting
+remain unconfirmed. The
+[session compatibility record](docs/evidence/session-compatibility-2026-11-22.json)
+identifies the tested executable and the separate observations from the
+preceding package. [FACE_VERIFICATION.md](docs/FACE_VERIFICATION.md) defines
+the remaining acceptance steps.
+
+The native packaging preview is still running. The dependency and FFplay
+check corrections above do not yet establish that every platform has passed.
+
+The preceding Linux regression gate for the face-verification and interaction
+fixes passed **139 tests**: 123 library tests, 3 CLI tests and 13 integration tests,
 using Rust 1.100.0 and `cargo test --locked --offline --all-features`.
 The default GUI build and headless check also passed. Private demo-window
 checks confirmed immediate area selection, crop movement to the final pointer
@@ -74,9 +109,10 @@ position, and stable image coordinates after resizing the window.
 scope of each check; installer and update behavior also have their own records
 in [UPDATES.md](docs/UPDATES.md). No frame-rate or interaction-latency benchmark
 was performed.
-Phone-side identity verification and an authenticated broadcast have not been
-performed for this fix. Two-party PK and physical GPU encoding require their
-own runtime acceptance results.
+The reported phone-side authentication failure was reproduced on the preceding
+package while its challenge remained valid. The current device-identity
+correction has not yet been shown to resolve that failure. Two-party PK and
+physical GPU encoding require their own runtime acceptance results.
 
 The default packaging configuration does not provide Windows Authenticode
 signatures or Apple Developer ID/notarization. macOS application and runtime

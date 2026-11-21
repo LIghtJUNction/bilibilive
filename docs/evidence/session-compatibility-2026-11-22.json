@@ -1,0 +1,162 @@
+{
+  "schema": 1,
+  "record_date": "2026-11-22",
+  "record_date_timezone": "Asia/Taipei",
+  "repository": "https://github.com/LIghtJUNction/bilibilive",
+  "scope": "Session compatibility correction, Linux automated validation, installed-candidate identity and real-account observations before acceptance",
+  "acceptance_status": "pending_user_phone_verification_and_broadcast",
+  "root_cause_of_original_phone_failure": "not_established",
+  "reference": {
+    "repository": "https://github.com/Radekyspec/StartLive",
+    "commit": "0b5a9830a8305d9cd6ac15378e46bee05b894c11",
+    "session_source": "https://github.com/Radekyspec/StartLive/blob/0b5a9830a8305d9cd6ac15378e46bee05b894c11/startlive/core/app_state/__init__.py",
+    "device_id_source": "https://github.com/Radekyspec/StartLive/blob/0b5a9830a8305d9cd6ac15378e46bee05b894c11/startlive/core/sign/gen_buvid.py",
+    "earlier_face_report_issue": "https://github.com/Radekyspec/StartLive/issues/21"
+  },
+  "confirmed_implementation_difference": {
+    "before": "The native buvid header was derived from the saved SPI buvid3 Cookie",
+    "upstream_contract": "A persistent application device ID supplies the buvid header independently of the account's SPI device cookies",
+    "correction": "Create one profile device.json atomically under the profile lock and pass its native identity to every App client; retain SPI cookies separately",
+    "additional_session_changes": [
+      "Anonymous QR requests carry public device metadata without inheriting saved account credentials",
+      "APP and WEB requests use their respective protocol header profiles"
+    ],
+    "phone_failure_causality_verified": false
+  },
+  "candidate": {
+    "application_version": "0.1.3",
+    "local_package_version": "0.1.3-0.2",
+    "matched_source_commit": "5e89476e33b7e76542e922f7a08604e508ecb182",
+    "source_branch": "fix/face-verification-20261122",
+    "source_url": "https://github.com/LIghtJUNction/bilibilive/tree/5e89476e33b7e76542e922f7a08604e508ecb182",
+    "session_fix_commit": "723359de74112e9e35f82fd1593376d479f1bb74",
+    "logo_commit": "5c72c2f5f13edbdee3bd9ed0c09b07b6b25a587f",
+    "binary_sha256": "aa06497a398312dd5cfe2b419622ae24358d7004b691ee4790021b63c08c78fa",
+    "installed_and_running_binary_match": true,
+    "source_pushed_to_github": true,
+    "last_room_check": {
+      "live_status": 0,
+      "identify_status": 1,
+      "lock_status": 0
+    }
+  },
+  "automated_checks": {
+    "environment": "Linux development host",
+    "rust_version": "1.100.0",
+    "offline_build": true,
+    "format": {
+      "command": "cargo +1.100.0 fmt --manifest-path <repository>/Cargo.toml",
+      "exit_code": 0
+    },
+    "tests": {
+      "command": "cargo +1.100.0 test --manifest-path <repository>/Cargo.toml --locked --offline",
+      "features": "default",
+      "library_passed": 126,
+      "cli_passed": 3,
+      "integration_passed": 13,
+      "total_passed": 142,
+      "failed": 0,
+      "exit_code": 0,
+      "credential_scope": "synthetic fixtures"
+    },
+    "release_build": {
+      "command": "cargo +1.100.0 build --manifest-path <repository>/Cargo.toml --release --locked --offline",
+      "exit_code": 0
+    },
+    "new_regressions": [
+      "anonymous_and_authenticated_sessions_keep_distinct_device_and_cookie_identity",
+      "native_device_identity_is_created_once_and_survives_settings_writes",
+      "profile_device_identity_survives_frontend_recreation_and_account_clients"
+    ],
+    "updated_protocol_fixture": "initialized_device_cookies_survive_new_clients_through_face_verification"
+  },
+  "real_account_observations": {
+    "timing_basis": "Seconds since the QR image was captured; timing values do not define a general platform expiry limit",
+    "previous_package": {
+      "local_package_version": "0.1.3-0.1",
+      "binary_sha256": "bd81463b066456af836a15267705656027328357821a17badc81b10ec6c7ada8",
+      "saved_account_authenticated": true,
+      "start_challenge_code": 60043,
+      "before_phone": {
+        "qr_capture_age_seconds": 0.94,
+        "more_info_http_status": 200,
+        "more_info_code": 0,
+        "has_realname": true,
+        "realname_status": 1,
+        "challenge_account_matches_saved_account": true,
+        "extra_present": true,
+        "poll_data_status": 0,
+        "verified": false
+      },
+      "phone_feedback": {
+        "camera_or_face_screen_opened": true,
+        "reported_result": "authentication_failed"
+      },
+      "after_phone_feedback": {
+        "qr_capture_age_seconds": 44.61,
+        "more_info_http_status": 200,
+        "more_info_code": 0,
+        "has_realname": true,
+        "realname_status": 1,
+        "challenge_account_matches_saved_account": true,
+        "extra_present": true,
+        "poll_data_status": 0,
+        "verified": false
+      },
+      "conclusion": "The reported failure occurred while the same challenge was valid; the platform had not confirmed verification"
+    },
+    "candidate_package": {
+      "local_package_version": "0.1.3-0.2",
+      "saved_account_authenticated": true,
+      "fresh_passport_qr_login_repeated": false,
+      "initial_challenge": {
+        "qr_capture_age_seconds": 0.78,
+        "more_info_http_status": 200,
+        "more_info_code": 0,
+        "has_realname": true,
+        "realname_status": 1,
+        "challenge_account_matches_saved_account": true,
+        "extra_present": true,
+        "poll_data_status": 0,
+        "verified": false
+      },
+      "phone_feedback_received": false,
+      "later_challenge_check": {
+        "qr_capture_age_seconds": 125.07,
+        "more_info_http_status": 200,
+        "more_info_code": 100003,
+        "more_info_result": "expired",
+        "poll_data_status": 2,
+        "verified": false
+      },
+      "conclusion": "The challenge expired while awaiting user feedback; this does not establish either successful phone verification or a reproduced phone failure on the candidate",
+      "successful_broadcast_observed": false
+    }
+  },
+  "required_acceptance": {
+    "running_binary_matches_candidate": "passed",
+    "saved_account_authenticates": "passed",
+    "face_verification_is_confirmed_by_platform": "pending",
+    "original_start_resumes_automatically": "pending",
+    "room_live_status_equals_one": "pending",
+    "user_confirms_login_and_broadcast_worked": "pending",
+    "overall": "pending"
+  },
+  "publication": {
+    "formal_release_published": false,
+    "preview_run": "https://github.com/LIghtJUNction/bilibilive/actions/runs/44941564775",
+    "preview_publish_input": false,
+    "preview_latest_recorded_state": "in_progress",
+    "release_requirements": [
+      "Real-account acceptance completes successfully",
+      "Native packaging gates pass for the intended release artifacts"
+    ]
+  },
+  "data_handling": {
+    "raw_credentials_saved_in_this_record": false,
+    "raw_qr_url_or_token_saved_in_this_record": false,
+    "account_or_room_identifiers_saved_in_this_record": false,
+    "realname_response_body_saved_in_this_record": false,
+    "screenshots_or_binary_packages_committed": false
+  }
+}
