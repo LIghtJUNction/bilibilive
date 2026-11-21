@@ -17,6 +17,7 @@ checks on the Linux development host with Rust 1.100.0:
 | `cargo test --locked --offline --all-features` | 123 library tests, 3 CLI tests and 13 integration tests passed: **139 tests total** |
 | `cargo build --locked --offline` | Default native GUI build passed |
 | `cargo check --locked --offline --no-default-features` | Headless check passed; an existing zgpui unused-dependency warning remained |
+| `cargo build --locked --offline --release` | Optimized release build passed in 9 min 41 s, exit code 0 |
 
 The protocol fixtures exercise V1 reporting, V2 registration followed by
 reporting, original challenge fields, signature scope, failed initialization,
@@ -38,8 +39,33 @@ A private Linux demo window used an isolated test configuration and a
 
 Screenshots from these checks remain outside Git. The image-cache fixtures
 also check raster dimensions and reuse. No frame-rate or interaction-latency
-benchmark was performed. The optimized release build has no completed result
-in this record.
+benchmark was performed.
+
+### Local package installation and release GUI smoke check
+
+The local pacman package `bilibilive 0.1.3-0.1`, assembled from
+`abe9279937c2ce2d1f35c908808f1dd5e2aee024`, was installed over `0.1.2-1`.
+That packaging commit adds documentation to runtime commit `d307d225`; the
+runtime source is unchanged. The
+[installation receipt](evidence/face-verification-install-2026-11-22.json)
+records the exact source revisions and binary identity.
+
+| Check | Observed result |
+|---|---|
+| `/usr/bin/bilibilive --version` | `bilibilive 0.1.3` |
+| `pacman -Qkk bilibilive` | 23 files checked, 0 altered |
+| Installed executable compared with the optimized build | Identical SHA-256; 14,406,928 bytes |
+| Installed GUI in a private desktop, demo mode and private configuration, with update checks disabled | Full 1160 × 800 overview opened; navigating to room settings displayed the area list, area ID and cover controls |
+
+The installed executable's SHA-256 is
+`bd81463b066456af836a15267705656027328357821a17badc81b10ec6c7ada8`.
+The installed release GUI check covered startup and navigation. The complete
+crop, drag and resize observations above belong to the earlier debug window.
+
+The delivery channel for this check is a local pacman fix package. The source
+is published on
+[`fix/face-verification-20261122`](https://github.com/LIghtJUNction/bilibilive/tree/fix/face-verification-20261122).
+Formal AUR and public release publication retain separate release gates.
 
 Phone-side identity verification and an authenticated Bilibili broadcast were
 not performed for this fix. [FACE_VERIFICATION.md](FACE_VERIFICATION.md)

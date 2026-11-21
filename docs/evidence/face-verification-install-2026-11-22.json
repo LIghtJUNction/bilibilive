@@ -1,0 +1,60 @@
+{
+  "status": "passed",
+  "scope": "Linux optimized build, local pacman installation, and installed GUI startup/navigation smoke check",
+  "recorded_on": "2026-11-22",
+  "date_timezone": "Asia/Taipei",
+  "runtime_commit": "d307d225eaf645c668a4a981f55217d68955a892",
+  "package_source_commit": "abe9279937c2ce2d1f35c908808f1dd5e2aee024",
+  "source_branch": "fix/face-verification-20261122",
+  "rust_version": "1.100.0",
+  "gates": [
+    {
+      "name": "optimized-release-build",
+      "command": ["cargo", "build", "--locked", "--offline", "--release"],
+      "exit_code": 0,
+      "seconds": 581
+    },
+    {
+      "name": "installed-version",
+      "command": ["/usr/bin/bilibilive", "--version"],
+      "version": "0.1.3"
+    },
+    {
+      "name": "installed-package-integrity",
+      "command": ["pacman", "-Qkk", "bilibilive"],
+      "files_checked": 23,
+      "files_altered": 0
+    }
+  ],
+  "package": {
+    "name": "bilibilive",
+    "version": "0.1.3-0.1",
+    "replaced_version": "0.1.2-1",
+    "channel": "local pacman fix package",
+    "installed": true
+  },
+  "installed_binary": {
+    "path": "/usr/bin/bilibilive",
+    "bytes": 14406928,
+    "sha256": "bd81463b066456af836a15267705656027328357821a17badc81b10ec6c7ada8",
+    "matches_optimized_build": true
+  },
+  "installed_gui_smoke": {
+    "status": "passed",
+    "executable": "/usr/bin/bilibilive",
+    "subcommand": "gui",
+    "demo": true,
+    "noupdate": true,
+    "private_config_directory": true,
+    "private_desktop": true,
+    "window_size": [1160, 800],
+    "observed": ["complete overview window", "navigation to room settings", "area list and ID", "cover controls"],
+    "full_crop_drag_resize_repeated": false
+  },
+  "formal_aur_publication_verified": false,
+  "public_release_publication_verified": false,
+  "phone_identity_verification_performed": false,
+  "authenticated_broadcast_performed": false,
+  "performance_benchmark_performed": false,
+  "screenshots_committed": false
+}
