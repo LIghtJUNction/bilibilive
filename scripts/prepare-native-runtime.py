@@ -489,6 +489,24 @@ def prepare_codecs(plan: dict, target: str, cache: Path, jobs: int,
     return prefix, versions, env
 
 
+def verify_nvcodec_package(source: Path, prefix: Path, reported_version: str) -> dict:
+    # nv-codec-headers' pkg-config revision can differ from its Git tag
+    # (n13.1.15.0 publishes Version: 13.1.15.0.1). Compare the installed
+    # package to the exact verified source template, without truncating it.
+    template=source/"ffnvcodec.pc.in";installed=prefix/"lib/pkgconfig/ffnvcodec.pc"
+    versions=[]
+    for path in (template,installed):
+        require(path.is_file() and path.stat().st_size<=64*1024,"Missing or oversized private NVENC pkg-config identity")
+        lines=[line for line in path.read_text(encoding="utf-8").splitlines() if line.startswith("Version:")]
+        require(len(lines)==1,"NVENC pkg-config identity must have exactly one Version field")
+        version=lines[0].partition(":")[2].strip()
+        require(re.fullmatch(r"[0-9]+(?:\.[0-9]+)+",version),"Unsupported NVENC pkg-config Version field")
+        versions.append(version)
+    require(versions[0]==versions[1]==reported_version,
+            f"NVENC pkg-config version {reported_version} / installed {versions[1]} differs from official source {versions[0]}")
+    return {"version":reported_version,"pkg_config_sha256":sha(installed),"source_pkg_config_sha256":sha(template)}
+
+
 def prepare_windows_gpu(plan: dict, target: str, cache: Path, prefix: Path,
                         jobs: int, msys: Path, env: dict) -> dict:
     """Compile optional device backends without requiring a GPU on the builder."""
@@ -496,7 +514,7 @@ def prepare_windows_gpu(plan: dict, target: str, cache: Path, prefix: Path,
     nv=source_checkout("nvcodec",plan["sources"]["nvcodec"],cache)
     codec_run(["make",f"PREFIX={msys_path(prefix)}","LIBDIR=lib","install"],nv,env,msys,logs/"gpu-nvcodec-install.log")
     nv_version=codec_run(["pkg-config","--modversion","ffnvcodec"],root,env,msys,timeout=30)
-    require(nv_version==plan["sources"]["nvcodec"]["tag"].removeprefix("n"),"NVENC headers differ from the resolved official version")
+    nv_package=verify_nvcodec_package(nv,prefix,nv_version)
     amf=source_checkout("amf",plan["sources"]["amf"],cache)
     headers=amf/"amf/public/include"
     require((headers/"core/Version.h").is_file(),"Official AMF source does not contain its public headers")
@@ -521,7 +539,7 @@ def prepare_windows_gpu(plan: dict, target: str, cache: Path, prefix: Path,
             "oneVPL dispatcher API differs from the resolved official source")
     require((prefix/"lib/pkgconfig/vpl.pc").is_file() and (prefix/"bin/libvpl.dll").is_file(),
             "oneVPL must produce its private pkg-config identity and runtime dispatcher DLL")
-    return {"nvcodec":{"source":plan["sources"]["nvcodec"],"version":nv_version,"upstream_driver_requirements":(nv/"README").read_text()[:8000]},
+    return {"nvcodec":{"source":plan["sources"]["nvcodec"],**nv_package,"upstream_driver_requirements":(nv/"README").read_text()[:8000]},
             "amf":{"source":plan["sources"]["amf"],"version":amf_version,"runtime":"AMD display driver supplies amfrt64.dll"},
             "libvpl":{"source":plan["sources"]["libvpl"],"api_version":version,"dispatcher":"libvpl.dll is bundled",
                       "device_implementation":"Intel graphics driver supplies the hardware implementation selected by the dispatcher"},

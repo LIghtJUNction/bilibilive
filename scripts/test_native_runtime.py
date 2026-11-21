@@ -187,6 +187,24 @@ class NativePayloadTests(unittest.TestCase):
                 self.assertEqual(checkout.call_args_list[-1].args,("openssl",plan["sources"]["openssl"],cache))
                 self.assertEqual(sum(call.args[0]=="openssl" for call in checkout.call_args_list),2)
 
+    def test_nvcodec_package_uses_exact_source_revision_not_git_tag_spelling(self):
+        source=self.root/"source";prefix=self.root/"prefix"
+        source.mkdir();(prefix/"lib/pkgconfig").mkdir(parents=True)
+        template=source/"ffnvcodec.pc.in";installed=prefix/"lib/pkgconfig/ffnvcodec.pc"
+        template.write_bytes(b"prefix=@@PREFIX@@\nName: ffnvcodec\nVersion: 13.1.15.0.1\n")
+        installed.write_bytes(b"prefix=D:/private\r\nName: ffnvcodec\r\nVersion: 13.1.15.0.1\r\n")
+        identity=native.verify_nvcodec_package(source,prefix,"13.1.15.0.1")
+        self.assertEqual(identity["version"],"13.1.15.0.1")
+        self.assertEqual(identity["source_pkg_config_sha256"],hashlib.sha256(template.read_bytes()).hexdigest())
+        self.assertEqual(identity["pkg_config_sha256"],hashlib.sha256(installed.read_bytes()).hexdigest())
+        for version in ("13.1.15.0","13.1.15.0.2","13.0.19.0"):
+            with self.subTest(reported=version),self.assertRaisesRegex(RuntimeError,"differs from official source"):
+                native.verify_nvcodec_package(source,prefix,version)
+        for text in ("Version: 13.1.15.0\n","Version: 13.1.15.0.1\nVersion: 13.1.15.0.1\n","Name: foreign\n"):
+            installed.write_text(text,encoding="utf-8")
+            with self.subTest(installed=text),self.assertRaises(RuntimeError):
+                native.verify_nvcodec_package(source,prefix,"13.1.15.0.1")
+
     def test_visual_cpp_redistributable_is_not_mislabeled_as_windows_os(self):
         msys=self.root/"msys";out=self.root/"payload";system=self.root/"Windows"
         for path in (msys/"ucrt64/bin",out/"runtime/bin",system/"System32"):path.mkdir(parents=True)
