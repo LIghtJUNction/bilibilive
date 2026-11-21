@@ -10,7 +10,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream},
     path::{Path, PathBuf},
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicBool, Ordering},
         mpsc::{self, Receiver, SyncSender},
     },
@@ -330,7 +330,77 @@ fn default_icon() -> Result<Icon, String> {
 
 pub type Bitmap = Arc<RgbaImage>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A display-sized raster, reused while the source and displayed size are stable.
+/// The full image remains available to the crop/export path, while repainting a
+/// small preview never uploads all pixels of a multi-megapixel original.
+#[derive(Default)]
+pub struct ImagePreview {
+    original: Weak<RgbaImage>,
+    source: CropRect,
+    size: (u32, u32),
+    raster: Option<Bitmap>,
+}
+
+impl ImagePreview {
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    fn raster(&mut self, image: &Bitmap, source: CropRect, destination: Rect) -> Bitmap {
+        let size = (
+            source.width.min(destination.w.ceil().max(1.) as u32),
+            source.height.min(destination.h.ceil().max(1.) as u32),
+        );
+        let same_image = self
+            .original
+            .upgrade()
+            .is_some_and(|original| Arc::ptr_eq(&original, image));
+        if same_image && self.source == source && self.size == size {
+            if let Some(raster) = &self.raster {
+                return raster.clone();
+            }
+        }
+        let raster = if source == CropRect::full(image) && size == image.dimensions() {
+            image.clone()
+        } else {
+            let selected = image::imageops::crop_imm(
+                image.as_ref(),
+                source.x,
+                source.y,
+                source.width,
+                source.height,
+            );
+            Arc::new(image::imageops::resize(
+                &selected,
+                size.0,
+                size.1,
+                FilterType::Triangle,
+            ))
+        };
+        self.original = Arc::downgrade(image);
+        self.source = source;
+        self.size = size;
+        self.raster = Some(raster.clone());
+        raster
+    }
+
+    pub fn paint(
+        &mut self,
+        canvas: &mut Canvas<'_>,
+        image: &Bitmap,
+        source: CropRect,
+        destination: Rect,
+        opacity: u8,
+    ) {
+        if opacity == 0 || !source.valid(image) || destination.w <= 0. || destination.h <= 0. {
+            return;
+        }
+        let raster = self.raster(image, source, destination);
+        paint_image(canvas, &raster, CropRect::full(&raster), destination, opacity);
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CropRect {
     pub x: u32,
     pub y: u32,
@@ -867,6 +937,65 @@ unsafe fn macos_pump() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn image_preview_reuses_a_display_sized_raster_during_dragging() {
+        let original = Arc::new(RgbaImage::from_pixel(
+            1920,
+            1080,
+            image::Rgba([240, 120, 60, 255]),
+        ));
+        let mut preview = ImagePreview::default();
+        let source = CropRect::full(&original);
+        let first = preview.raster(&original, source, Rect::new(0., 0., 640., 360.));
+        assert_eq!(first.dimensions(), (640, 360));
+        assert_eq!(first.as_raw().len() * 9, original.as_raw().len());
+        for position in 0..128 {
+            let frame = preview.raster(
+                &original,
+                source,
+                Rect::new(position as f32, 12., 640., 360.),
+            );
+            assert!(Arc::ptr_eq(&first, &frame));
+        }
+        assert_eq!(original.dimensions(), (1920, 1080));
+        assert_eq!(Arc::strong_count(&original), 1);
+        let resized = preview.raster(&original, source, Rect::new(0., 0., 320., 180.));
+        assert_eq!(resized.dimensions(), (320, 180));
+        assert!(!Arc::ptr_eq(&first, &resized));
+        preview.clear();
+        assert!(preview.raster.is_none());
+        assert!(preview.original.upgrade().is_none());
+    }
+
+    #[test]
+    fn image_preview_invalidates_for_a_new_source_and_uses_the_requested_crop() {
+        let mut original = RgbaImage::from_pixel(64, 36, image::Rgba([255, 0, 0, 255]));
+        for y in 18..36 {
+            for x in 32..64 {
+                original.put_pixel(x, y, image::Rgba([0, 0, 255, 255]));
+            }
+        }
+        let original = Arc::new(original);
+        let mut preview = ImagePreview::default();
+        let source = CropRect {
+            x: 32,
+            y: 18,
+            width: 32,
+            height: 18,
+        };
+        let destination = Rect::new(0., 0., 16., 9.);
+        let first = preview.raster(&original, source, destination);
+        assert!(first.pixels().all(|pixel| pixel.0 == [0, 0, 255, 255]));
+        let replacement = Arc::new(RgbaImage::from_pixel(
+            64,
+            36,
+            image::Rgba([0, 255, 0, 255]),
+        ));
+        let next = preview.raster(&replacement, source, destination);
+        assert!(!Arc::ptr_eq(&first, &next));
+        assert!(next.pixels().all(|pixel| pixel.0 == [0, 255, 0, 255]));
+    }
 
     #[test]
     fn crop_uses_the_selected_pixels_and_exact_export_size() {

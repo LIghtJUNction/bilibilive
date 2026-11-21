@@ -1,7 +1,7 @@
 //! The native desktop surface. Every operation uses the same dispatcher as CLI/MCP.
 use crate::app::App;
 use crate::desktop::{
-    self, Asset, AssetRequest, Bitmap, CropRect, Images, Instance, Tray, TrayAction,
+    self, Asset, AssetRequest, Bitmap, CropRect, ImagePreview, Images, Instance, Tray, TrayAction,
 };
 use qrcodegen::{QrCode, QrCodeEcc};
 use serde_json::{Value, json};
@@ -165,6 +165,8 @@ struct Desktop {
     crop_image_id: u64,
     cover: Option<Bitmap>,
     background: Option<Bitmap>,
+    cover_preview: ImagePreview,
+    background_preview: ImagePreview,
     tray_image: Option<Bitmap>,
     cover_identity: String,
     background_identity: String,
@@ -316,10 +318,20 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
     let mut tray: Option<Tray> = None;
     let mut tray_attempted = false;
     let mut tray_state = String::new();
+    let mut queued_event = None;
     loop {
         let mut restore = activation.as_ref().is_some_and(|owner| owner.requested());
         let mut event = match window.as_mut() {
-            Some(window) => window.event(80),
+            Some(window) => {
+                let first = queued_event
+                    .take()
+                    .or_else(|| window.event(if drawn { 80 } else { 0 }));
+                first.map(|first| {
+                    let (event, next) = coalesce_frame_event(first, || window.event(0));
+                    queued_event = next;
+                    event
+                })
+            }
             None => {
                 desktop::pump_tray_events();
                 std::thread::sleep(Duration::from_millis(80));
@@ -336,6 +348,7 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
             {
                 window = None;
                 event = None;
+                queued_event = None;
                 drawn = false;
                 desktop.show_key = false;
             } else {
@@ -453,6 +466,7 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
             ui = Ui::default();
             drawn = false;
             event = None;
+            queued_event = None;
         }
         let requested_theme =
             if desktop.config.get("theme").and_then(Value::as_str) == Some("light") {
@@ -510,7 +524,7 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
             continue;
         }
         visible_notice = notice_now;
-        let had_input = event.is_some();
+        let followup_frame = input_needs_followup(event.as_ref());
         ui.begin(event);
         let page_before_draw = desktop.page;
         let window = window.as_mut().expect("visible window checked above");
@@ -525,7 +539,7 @@ pub fn run_with_options(app: App, demo: bool, no_update: bool) -> Result<(), Str
         window.present();
         // Page buttons can navigate after the current page has already drawn.
         // Present the destination without waiting for another input event.
-        drawn = !had_input && desktop.page == page_before_draw;
+        drawn = !followup_frame && desktop.page == page_before_draw;
         frames += 1;
         if frame_limit.is_some_and(|limit| frames >= limit) {
             break;
@@ -567,6 +581,53 @@ fn new_window(desktop: &mut Desktop) -> Result<Window, String> {
         desktop.notice(&error, false);
     }
     Ok(window)
+}
+
+// A busy pointer or a window resize must not leave the display replaying stale
+// coordinates. Keep the newest continuous event, but preserve the first button,
+// key or other event in order. Both bounds leave time for replies and timers.
+const INPUT_BATCH_LIMIT: usize = 128;
+
+fn coalesce_frame_event(
+    mut event: Event,
+    mut poll: impl FnMut() -> Option<Event>,
+) -> (Event, Option<Event>) {
+    if !matches!(event, Event::Move(_, _) | Event::Resize) {
+        return (event, None);
+    }
+    let started = Instant::now();
+    for _ in 1..INPUT_BATCH_LIMIT {
+        if started.elapsed() >= Duration::from_millis(2) {
+            break;
+        }
+        let Some(next) = poll() else {
+            break;
+        };
+        if matches!(
+            (&event, &next),
+            (Event::Move(_, _), Event::Move(_, _)) | (Event::Resize, Event::Resize)
+        ) {
+            event = next;
+        } else {
+            return (event, Some(next));
+        }
+    }
+    (event, None)
+}
+
+fn input_needs_followup(event: Option<&Event>) -> bool {
+    // These controls can update values after earlier widgets drew them. Pointer
+    // movement, crop motion and resizing are applied before drawing the frame.
+    matches!(
+        event,
+        Some(
+            Event::Down(_, _)
+                | Event::Up(_, _)
+                | Event::Key { .. }
+                | Event::Text(_)
+                | Event::Scroll(_)
+        )
+    )
 }
 
 impl Desktop {
@@ -648,6 +709,8 @@ impl Desktop {
             crop_image_id: 0,
             cover: None,
             background: None,
+            cover_preview: ImagePreview::default(),
+            background_preview: ImagePreview::default(),
             tray_image: None,
             cover_identity: String::new(),
             background_identity: String::new(),
@@ -1394,6 +1457,7 @@ impl Desktop {
         self.titles.clear();
         self.recent_areas.clear();
         self.cover = None;
+        self.cover_preview.clear();
         self.cover_local = false;
         self.cover_loading = false;
         self.cover_path.clear();
@@ -1483,6 +1547,7 @@ impl Desktop {
         if stamp != self.background_identity {
             if background_path.is_empty() {
                 self.background = None;
+                self.background_preview.clear();
                 self.background_identity = stamp;
                 self.image_serial += 1;
                 self.background_image_id = self.image_serial;
@@ -1581,6 +1646,7 @@ impl Desktop {
         if self.cover_loading {
             self.cover_local = true;
             self.cover = None;
+            self.cover_preview.clear();
             self.page = Page::Cover;
         }
     }
@@ -1617,8 +1683,9 @@ impl Desktop {
                 self.crop_drag = Some((x, y, self.crop, inside));
                 true
             }
-            Some(Event::Move(x, y)) if self.crop_drag.is_some() => {
+            Some(Event::Move(x, y) | Event::Up(x, y)) if self.crop_drag.is_some() => {
                 let (start_x, start_y, initial, moving) = self.crop_drag.unwrap();
+                let previous = self.crop;
                 let (x, y) = point(*x, *y);
                 if moving {
                     self.crop = initial.moved(image, x - start_x, y - start_y);
@@ -1641,7 +1708,11 @@ impl Desktop {
                         };
                     }
                 }
-                true
+                let released = matches!(event, Some(Event::Up(_, _)));
+                if released {
+                    self.crop_drag = None;
+                }
+                released || self.crop != previous
             }
             Some(Event::Up(_, _)) => self.crop_drag.take().is_some(),
             Some(Event::Scroll(delta)) => {
@@ -1888,7 +1959,8 @@ impl Desktop {
                 Rect::new(sidebar, 0., width - sidebar, height),
                 mode,
             );
-            desktop::paint_image(canvas, background, source, destination, opacity);
+            self.background_preview
+                .paint(canvas, background, source, destination, opacity);
         }
         canvas.rect(Rect::new(0., 0., sidebar, height), 0., PANEL);
         canvas.text("bili", 31., 34., 28, true, INK);
@@ -2401,7 +2473,8 @@ impl Desktop {
         canvas.rect(preview, 9., PANEL);
         if let Some(cover) = &self.cover {
             let (source, destination) = desktop::fit_image(cover, preview, "contain");
-            desktop::paint_image(canvas, cover, source, destination, 255);
+            self.cover_preview
+                .paint(canvas, cover, source, destination, 255);
             canvas.text(
                 if self.cover_local {
                     "本地预览"
@@ -2486,21 +2559,24 @@ impl Desktop {
         } else {
             &self.areas
         };
-        let filtered: Vec<(u64, String)> = source
+        let filtered: Vec<_> = source
             .iter()
             .filter(|(id, name)| {
-                name.to_lowercase().contains(&query) || id.to_string().contains(&query)
+                query.is_empty()
+                    || name.to_lowercase().contains(&query)
+                    || id.to_string().contains(&query)
             })
-            .cloned()
             .collect();
         let rows = (((height - 404.) / 44.) as usize).max(1);
-        self.area_offset = self.area_offset.min(filtered.len().saturating_sub(rows));
-        for (index, (id, name)) in filtered
-            .iter()
+        let total = filtered.len();
+        self.area_offset = self.area_offset.min(total.saturating_sub(rows));
+        let visible: Vec<_> = filtered
+            .into_iter()
             .skip(self.area_offset)
             .take(rows)
-            .enumerate()
-        {
+            .cloned()
+            .collect();
+        for (index, (id, name)) in visible.iter().enumerate() {
             let y = 308. + index as f32 * 44.;
             let selected = self.area_id == id.to_string();
             if selected {
@@ -2519,7 +2595,7 @@ impl Desktop {
                 self.room_dirty = true;
             }
         }
-        if filtered.is_empty() {
+        if total == 0 {
             canvas.text(
                 if busy {
                     "正在加载分区…"
@@ -2560,7 +2636,7 @@ impl Desktop {
             Rect::new(right_x + right - 39., height - 96., 36., 34.),
             "↓",
             ButtonStyle::Quiet,
-            self.area_offset + rows < filtered.len(),
+            self.area_offset + rows < total,
         ) {
             self.area_offset += rows;
         }
@@ -2592,7 +2668,8 @@ impl Desktop {
         }
         if let Some(image) = self.cover.clone() {
             let (source, destination) = desktop::fit_image(&image, panel.inset(18.), "contain");
-            desktop::paint_image(canvas, &image, source, destination, 255);
+            self.cover_preview
+                .paint(canvas, &image, source, destination, 255);
             self.crop_display = destination;
             let sx = destination.w / image.width() as f32;
             let sy = destination.h / image.height() as f32;
@@ -5364,6 +5441,82 @@ fn demo_response(method: &str) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_batches_keep_the_latest_position_and_preserve_discrete_events() {
+        use std::collections::VecDeque;
+        let mut events = VecDeque::from([
+            Event::Move(2., 3.),
+            Event::Move(4., 5.),
+            Event::Up(6., 7.),
+            Event::Key {
+                code: 27,
+                control: false,
+                shift: false,
+                text: String::new(),
+            },
+        ]);
+        let (event, queued) = coalesce_frame_event(Event::Move(0., 1.), || events.pop_front());
+        assert!(matches!(event, Event::Move(4., 5.)));
+        assert!(matches!(queued, Some(Event::Up(6., 7.))));
+        let (event, queued) = coalesce_frame_event(queued.unwrap(), || {
+            panic!("button events must be delivered before reading another event")
+        });
+        assert!(matches!(event, Event::Up(6., 7.)));
+        assert!(queued.is_none());
+        assert!(matches!(
+            events.pop_front(),
+            Some(Event::Key { code: 27, .. })
+        ));
+    }
+
+    #[test]
+    fn continuous_input_batches_are_bounded_and_resize_keeps_event_order() {
+        let mut reads = 0;
+        let (event, queued) = coalesce_frame_event(Event::Move(0., 0.), || {
+            reads += 1;
+            Some(Event::Move(reads as f32, 0.))
+        });
+        assert!(reads < INPUT_BATCH_LIMIT);
+        assert!(matches!(event, Event::Move(x, _) if x == reads as f32));
+        assert!(queued.is_none());
+
+        let mut events = [Event::Resize, Event::Move(2., 3.), Event::Close].into_iter();
+        let (event, queued) = coalesce_frame_event(Event::Resize, || events.next());
+        assert!(matches!(event, Event::Resize));
+        assert!(matches!(queued, Some(Event::Move(2., 3.))));
+        assert!(matches!(events.next(), Some(Event::Close)));
+    }
+
+    #[test]
+    fn motion_and_resize_do_not_force_another_full_frame() {
+        assert!(!input_needs_followup(None));
+        assert!(!input_needs_followup(Some(&Event::Move(4., 5.))));
+        assert!(!input_needs_followup(Some(&Event::Resize)));
+        assert!(input_needs_followup(Some(&Event::Up(4., 5.))));
+        assert!(input_needs_followup(Some(&Event::Text("new title".into()))));
+    }
+
+    #[test]
+    fn crop_drag_skips_unchanged_pixels_and_uses_the_release_position() {
+        let (mut desktop, _, _) = component_fixture(true, true);
+        desktop.page = Page::Cover;
+        desktop.cover = Some(Arc::new(image::RgbaImage::new(64, 36)));
+        desktop.crop = CropRect {
+            x: 0,
+            y: 0,
+            width: 32,
+            height: 18,
+        };
+        desktop.crop_display = Rect::new(0., 0., 128., 72.);
+        assert!(desktop.handle_event(Some(&Event::Down(32., 18.))));
+        assert!(!desktop.handle_event(Some(&Event::Move(32.1, 18.1))));
+        assert!(desktop.handle_event(Some(&Event::Move(64., 36.))));
+        assert_eq!((desktop.crop.x, desktop.crop.y), (16, 9));
+        assert!(desktop.handle_event(Some(&Event::Up(96., 54.))));
+        assert_eq!((desktop.crop.x, desktop.crop.y), (32, 18));
+        assert!(desktop.crop_drag.is_none());
+    }
 
     fn component_fixture(
         demo: bool,
