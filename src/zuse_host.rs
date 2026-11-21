@@ -3,7 +3,7 @@
 //! Imports and functions are expanded by zuse itself. Every resulting call is
 //! parsed, typed and checked before the first application operation is executed.
 use crate::{
-    app::{App, redact},
+    app::{App, is_success, redact},
     schema,
 };
 use serde_json::{Map, Number, Value, json};
@@ -75,19 +75,29 @@ pub fn execute_with_cancel(
             "steps":plan.steps.iter().enumerate().map(|(index,step)| describe_step(index,step)).collect::<Vec<_>>() }),
         );
     }
+    Ok(execute_plan(&plan, cancellation, |operation, arguments| {
+        app.call(operation, arguments.clone())
+    }))
+}
+
+fn execute_plan(
+    plan: &Plan,
+    cancellation: &CancellationToken,
+    mut dispatch: impl FnMut(&str, &Value) -> Result<Value, String>,
+) -> Value {
     let started = Instant::now();
     let mut timer = Timer::default();
     let mut receipts = Vec::with_capacity(plan.steps.len());
     for (index, step) in plan.steps.iter().enumerate() {
         if cancellation.is_cancelled() {
-            return Ok(receipt(
+            return receipt(
                 "cancelled",
-                &plan,
+                plan,
                 receipts,
                 started,
                 Some(index + 1),
                 None,
-            ));
+            );
         }
         let command_started = Instant::now();
         let result = match step.operation.as_str() {
@@ -108,7 +118,7 @@ pub fn execute_with_cancel(
                 Ok(timer.status())
             }
             "timer.status" => Ok(timer.status()),
-            operation => app.call(operation, step.arguments.clone()),
+            operation => dispatch(operation, &step.arguments),
         };
         let duration = command_started.elapsed();
         timer.record(duration, !step.operation.starts_with("timer."));
@@ -124,42 +134,55 @@ pub fn execute_with_cancel(
                         value["status"].as_str(),
                         Some("verification_required" | "live_without_requested_protocol")
                     ) || value["available"].as_bool() == Some(false));
+                let succeeded = is_success(&value);
                 redact(&mut value);
                 redact_challenges(&mut value);
-                entry["ok"] = true.into();
+                entry["ok"] = (blocked || succeeded).into();
                 entry["result"] = value;
+                if !blocked && !succeeded {
+                    // Keep partial effects in the failed step, without counting
+                    // it as completed or dispatching later operations.
+                    return receipt(
+                        "failed",
+                        plan,
+                        receipts,
+                        started,
+                        Some(index + 1),
+                        Some(entry),
+                    );
+                }
                 receipts.push(entry);
                 if blocked {
                     let mut result = receipt(
                         "blocked",
-                        &plan,
+                        plan,
                         receipts,
                         started,
                         (index + 1 < plan.steps.len()).then_some(index + 2),
                         None,
                     );
                     result["reason"] = "The platform requires verification or the requested stream protocol is unavailable; later steps were not run".into();
-                    return Ok(result);
+                    return result;
                 }
             }
             Err(error) => {
                 let cancelled = step.operation == "wait" && cancellation.is_cancelled();
                 entry["ok"] = false.into();
                 entry["error"] = error.into();
-                return Ok(receipt(
+                return receipt(
                     if cancelled { "cancelled" } else { "failed" },
-                    &plan,
+                    plan,
                     receipts,
                     started,
                     Some(index + 1),
                     Some(entry),
-                ));
+                );
             }
         }
     }
     // If the final remote action succeeded while cancellation arrived, its
     // success is retained; only unexecuted work is considered cancelled.
-    Ok(receipt("completed", &plan, receipts, started, None, None))
+    receipt("completed", plan, receipts, started, None, None)
 }
 
 fn prepare(
@@ -569,6 +592,92 @@ mod tests {
         assert_eq!(run["completed_steps"], 1);
         assert_eq!(run["failed_step"]["index"], 2);
         assert!(!fixture.directory.join("config.json").exists());
+    }
+
+    #[test]
+    fn structured_failures_keep_partial_results_and_stop_later_mutations() {
+        for (operation, call, value) in [
+            (
+                "pk.link.disconnect",
+                "pk.link.disconnect(session_id=\"fixture\")",
+                json!({"ok":false,"status":"partial_failure","end_round":{"ok":false,"error":"fixture failure"},"quit":{"ok":true,"result":{}},"token":"fixture-secret"}),
+            ),
+            (
+                "face.poll",
+                "face.poll()",
+                json!({"status":"expired_or_failed","verified":false,"token":"fixture-secret"}),
+            ),
+        ] {
+            let fixture = Fixture::new();
+            let source = format!(
+                "config.set(key=\"default_area\",value=99);{call};config.set(key=\"default_area\",value=42)"
+            );
+            let plan = prepare(&source, None, false, false).unwrap();
+            let mut called = Vec::new();
+            let run = execute_plan(&plan, &CancellationToken::default(), |method, args| {
+                called.push(method.to_owned());
+                if method == operation {
+                    Ok(value.clone())
+                } else {
+                    fixture.app.call(method, args.clone())
+                }
+            });
+            assert_eq!(called, ["config.set", operation]);
+            assert_eq!(run["ok"], false);
+            assert_eq!(run["status"], "failed");
+            assert_eq!(run["completed_steps"], 1);
+            assert_eq!(run["next_step"], 2);
+            assert_eq!(run["failed_step"]["index"], 2);
+            assert_eq!(run["failed_step"]["operation"], operation);
+            assert_eq!(run["failed_step"]["ok"], false);
+            let mut expected = value;
+            redact(&mut expected);
+            assert_eq!(run["failed_step"]["result"], expected);
+            assert!(!run.to_string().contains("fixture-secret"));
+            assert_eq!(
+                fixture.app.call("config.get", json!({})).unwrap()["default_area"],
+                99
+            );
+        }
+    }
+
+    #[test]
+    fn platform_blocks_keep_the_attempted_step_and_skip_following_mutations() {
+        for (operation, value) in [
+            (
+                "live.start",
+                json!({"status":"verification_required","token":"fixture-secret"}),
+            ),
+            (
+                "live.start",
+                json!({"status":"live_without_requested_protocol","available":false}),
+            ),
+            ("live.stream", json!({"available":false})),
+        ] {
+            let fixture = Fixture::new();
+            let source = format!(
+                "config.get();{operation}();config.set(key=\"default_area\",value=42)"
+            );
+            let plan = prepare(&source, None, false, false).unwrap();
+            let mut called = Vec::new();
+            let run = execute_plan(&plan, &CancellationToken::default(), |method, args| {
+                called.push(method.to_owned());
+                if method == operation {
+                    Ok(value.clone())
+                } else {
+                    fixture.app.call(method, args.clone())
+                }
+            });
+            assert_eq!(called, ["config.get", operation]);
+            assert_eq!(run["ok"], false);
+            assert_eq!(run["status"], "blocked");
+            assert_eq!(run["completed_steps"], 2);
+            assert_eq!(run["next_step"], 3);
+            assert!(run["failed_step"].is_null());
+            assert_eq!(run["steps"][1]["ok"], true);
+            assert!(!run.to_string().contains("fixture-secret"));
+            assert!(!fixture.directory.join("config.json").exists());
+        }
     }
 
     #[test]
