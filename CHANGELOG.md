@@ -2,6 +2,15 @@
 
 ## 0.1.3
 
+- Prepare face verification in the shared broadcast path: initialize missing
+  device cookies, register V2 vouchers, and report the original platform
+  challenge before displaying its QR code. Preserve the initiating account,
+  room, area and protocol when continuing after platform confirmation; cancel,
+  expiry and initialization failures do not continue a broadcast.
+- Coalesce bounded batches of pointer and resize events, stop redundant
+  mouse-move redraws, and cache images at their display size. Crop release
+  applies its final pointer position; source pixels remain available for full
+  resolution cropping. Area selection copies only visible rows.
 - Add the **Live interface configuration** page and shared
   `protocol.status/refresh` operations. Refresh all eight upstream request
   profile fields from the official StartLive JSON, retain validated local
@@ -55,13 +64,19 @@
   actions. Project Z Git declarations remain on their default branches;
   dependency updates retain the local validation and explicit release gates.
 
-The current Linux protocol/frontend integration gate passed 124 tests with
-the native GUI backend linked and zuse-computer 0.5.0 in the dependency graph.
-Its receipt records the exact tested source file and lock hashes. Installer,
-window, media and OBS execution retain separate platform receipts; see
-[VALIDATION.md](docs/VALIDATION.md) and [UPDATES.md](docs/UPDATES.md).
-Real Bilibili account/broadcast flows, two-party PK and physical GPU encoding
-have not been validated in this development cycle.
+The Linux regression gate for the face-verification and interaction fixes
+passed **139 tests**: 123 library tests, 3 CLI tests and 13 integration tests,
+using Rust 1.100.0 and `cargo test --locked --offline --all-features`.
+The default GUI build and headless check also passed. Private demo-window
+checks confirmed immediate area selection, crop movement to the final pointer
+position, and stable image coordinates after resizing the window.
+[VALIDATION.md](docs/VALIDATION.md) records the tested source commit and the
+scope of each check; installer and update behavior also have their own records
+in [UPDATES.md](docs/UPDATES.md). No frame-rate or interaction-latency benchmark
+was performed.
+Phone-side identity verification and an authenticated broadcast have not been
+performed for this fix. Two-party PK and physical GPU encoding require their
+own runtime acceptance results.
 
 The default packaging configuration does not provide Windows Authenticode
 signatures or Apple Developer ID/notarization. macOS application and runtime

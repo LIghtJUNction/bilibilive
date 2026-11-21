@@ -1,4 +1,4 @@
-# Validation record — 2026-11-21
+# Validation record
 
 This record identifies what was actually exercised and which source snapshot
 each result covers. The machine-readable
@@ -7,7 +7,47 @@ lock and source digests, screenshot hashes and the four background samples.
 The [dependency receipt](evidence/dependencies-2026-11-21.json) records the public
 Project Z default heads and the stable versions returned by crates.io.
 
-## 0.1.3 protocol and frontend integration
+## 0.1.3 face verification and interaction — 2026-11-22
+
+Runtime commit `d307d225eaf645c668a4a981f55217d68955a892` passed the following
+checks on the Linux development host with Rust 1.100.0:
+
+| Command | Observed result |
+|---|---|
+| `cargo test --locked --offline --all-features` | 123 library tests, 3 CLI tests and 13 integration tests passed: **139 tests total** |
+| `cargo build --locked --offline` | Default native GUI build passed |
+| `cargo check --locked --offline --no-default-features` | Headless check passed; an existing zgpui unused-dependency warning remained |
+
+The protocol fixtures exercise V1 reporting, V2 registration followed by
+reporting, original challenge fields, signature scope, failed initialization,
+polling outcomes and stable device cookies across newly constructed clients.
+GUI and App fixtures cover cancellation, stale polling responses, reuse of
+the original start arguments and rejection after a different account is
+selected. Input and image fixtures cover bounded event coalescing, release
+coordinates and display-raster cache reuse.
+
+A private Linux demo window used an isolated test configuration and a
+1920 × 1080 synthetic PNG. The observed interactions were:
+
+| Action | Observed result |
+|---|---|
+| Select area 21 | The displayed selection immediately changed to `area_id=21` |
+| Shrink the crop twice | The selection reached 1552 × 873 source-image pixels |
+| Drag the crop by −60, +30 screen pixels | The selection reached the final pointer position on release |
+| Resize the window from 1160 × 800 to 1040 × 720 | The preview was resampled; the selection retained its 1552 × 873 image-coordinate dimensions, without blank regions or misalignment |
+
+Screenshots from these checks remain outside Git. The image-cache fixtures
+also check raster dimensions and reuse. No frame-rate or interaction-latency
+benchmark was performed. The optimized release build has no completed result
+in this record.
+
+Phone-side identity verification and an authenticated Bilibili broadcast were
+not performed for this fix. [FACE_VERIFICATION.md](FACE_VERIFICATION.md)
+documents the request sequence and the remaining phone-side check. Installer,
+OBS, two-party PK and Windows/macOS runtime evidence retains its own snapshot
+and scope in the sections below.
+
+## Earlier 0.1.3 protocol and frontend integration
 
 The integrated protocol-profile implementation and its App, CLI, MCP, zuse and
 GUI routes passed `cargo test --locked --all-targets` with the default native
@@ -27,11 +67,11 @@ failed refresh followed by the version check, and account-context handling.
 No authenticated Bilibili request or native window was used in this gate.
 
 The earlier native Linux window check used `c831b2d6` and exposed delayed
-repainting after an in-page navigation click. The two drawing-loop fixes and
-the new interface-configuration page require their own final integrated
-native-window receipt. Windows/macOS installers and private update/restart
-probes similarly retain separate platform gates; a successful library test
-is not evidence that an installer ran.
+repainting after an in-page navigation click. That snapshot predates the
+subsequent drawing-loop fixes and interface-configuration page. The current
+area, crop and resize observations are recorded above; the new configuration
+page retains its own window-acceptance requirement. Windows/macOS installers
+and private update/restart probes similarly retain separate platform gates.
 
 ## Update and component GUI fixtures
 
