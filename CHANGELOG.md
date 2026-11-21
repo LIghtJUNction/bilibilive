@@ -57,6 +57,11 @@ pending**. The local `0.1.3-0.3` acceptance candidate is installed.
   requested; package-managed Linux plugins remain under package-manager
   ownership. Installation receipts describe files and request an OBS
   restart; they do not claim the module has loaded.
+- Fix Windows OBS plugin installation on canonical drive paths by joining
+  the drive prefix and root before checking directories. Reject drive-relative
+  paths and retain per-directory symlink and reparse-point checks. Add Windows
+  installation and junction-rejection regressions, and run the installation
+  gate before native media compilation.
 - Add Windows/macOS payload builds for the OBS plugin, FFmpeg, FFplay,
   libdatachannel and their non-system runtime dependencies and licenses.
   The software media path includes H.264, AV1 and Opus. Linux continues to

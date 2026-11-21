@@ -101,6 +101,99 @@ fn install_and_repeat_verify_files_and_keep_previous_installation() {
     assert!(path.is_file());
     assert!(!f.destination.join(".bilibilive-pk-install.lock").exists());
 }
+
+#[cfg(windows)]
+fn windows_drive_path(path: &std::path::Path) -> PathBuf {
+    use std::path::{Component, Prefix};
+    assert!(
+        matches!(path.components().next(), Some(Component::Prefix(prefix))
+        if matches!(prefix.kind(), Prefix::VerbatimDisk(_)))
+    );
+    PathBuf::from(path.to_str().unwrap().strip_prefix(r"\\?\").unwrap())
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_canonical_and_drive_paths_install_and_verify_on_disk() {
+    use std::path::{Component, Prefix};
+    for verbatim in [true, false] {
+        let mut f = Fixture::new();
+        // Fixture::new uses fs::canonicalize on a real Windows temporary
+        // directory. Both representations must reach that same directory.
+        let canonical_source = fs::canonicalize(&f.source).unwrap();
+        // Its bare verbatim drive prefix is not a filesystem directory,
+        // even though Rust considers that prefix an absolute path.
+        let prefix_only = PathBuf::from(canonical_source.components().next().unwrap().as_os_str());
+        assert!(fs::symlink_metadata(&prefix_only).is_err());
+        assert!(bundle::no_links(&prefix_only).is_err());
+        if !verbatim {
+            f.source = windows_drive_path(&f.source);
+            f.destination = windows_drive_path(&f.destination);
+        }
+        assert!(
+            matches!(f.source.components().next(), Some(Component::Prefix(prefix))
+            if matches!((verbatim, prefix.kind()), (true, Prefix::VerbatimDisk(_)) | (false, Prefix::Disk(_))))
+        );
+        assert_eq!(fs::canonicalize(&f.source).unwrap(), canonical_source);
+        bundle::no_links(&f.source).unwrap();
+        let args = f.args();
+        let installed = obs_plugin::install(&args).unwrap();
+        let plugin = PathBuf::from(installed["plugin_path"].as_str().unwrap());
+        assert_eq!(fs::read(plugin).unwrap(), fs::read(f.payload()).unwrap());
+        assert_eq!(obs_plugin::status(&args).unwrap()["verified"], true);
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_junction_is_rejected_before_installing_through_it() {
+    use std::os::windows::fs::MetadataExt;
+    use std::process::Command;
+    struct Junction(PathBuf);
+    impl Drop for Junction {
+        fn drop(&mut self) {
+            // Remove the junction itself before Fixture cleans its target.
+            let _ = fs::remove_dir(&self.0);
+        }
+    }
+    let f = Fixture::new();
+    let args = f.args();
+    let target = f.root.join("junction target");
+    fs::create_dir(&target).unwrap();
+    fs::write(target.join("keep.txt"), b"untouched target").unwrap();
+    let junction = Junction(windows_drive_path(&f.destination));
+    let created = Command::new("cmd.exe")
+        .args(["/D", "/C", "mklink", "/J"])
+        .arg(&junction.0)
+        .arg(windows_drive_path(&target))
+        .output()
+        .unwrap();
+    assert!(
+        created.status.success(),
+        "mklink /J failed: {}{}",
+        String::from_utf8_lossy(&created.stdout),
+        String::from_utf8_lossy(&created.stderr)
+    );
+    assert_ne!(
+        fs::symlink_metadata(&junction.0).unwrap().file_attributes() & 0x400,
+        0
+    );
+    let normal_error = bundle::no_links(&junction.0.join("not-created")).unwrap_err();
+    let verbatim_error = bundle::no_links(&f.destination.join("not-created")).unwrap_err();
+    let install_error = obs_plugin::install(&args).unwrap_err();
+    fs::remove_dir(&junction.0).unwrap();
+    assert!(!junction.0.exists());
+    drop(junction);
+    for error in [normal_error, verbatim_error, install_error] {
+        assert!(error.contains("symlink"), "{error}");
+    }
+    assert_eq!(
+        fs::read(target.join("keep.txt")).unwrap(),
+        b"untouched target"
+    );
+    assert_eq!(fs::read_dir(&target).unwrap().count(), 1);
+}
+
 #[test]
 fn changed_source_is_rejected_before_installation() {
     let f = Fixture::new();

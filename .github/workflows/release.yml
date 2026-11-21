@@ -188,6 +188,11 @@ jobs:
           subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'packaging', '-p', 'test_installer*.py'], check=True)
           subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_native_runtime.py'], check=True)
           subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_macos_tools.py'], check=True)
+      - name: Verify native plugin filesystem operations before media compilation
+        shell: python
+        run: |
+          import subprocess
+          subprocess.run(['cargo', 'test', '--locked', '--test', 'obs_plugin_installation'], check=True)
       - name: Build and verify the native OBS and media payload
         shell: python
         env:

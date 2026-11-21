@@ -119,12 +119,18 @@ pub fn no_links(path: &Path) -> Result<(), String> {
     #[cfg(windows)]
     if !matches!(path.components().next(), Some(Component::Prefix(prefix))
         if matches!(prefix.kind(), std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)))
+        || !matches!(path.components().nth(1), Some(Component::RootDir))
     {
-        return Err("Native payload paths must use a local Windows drive, not a network or device namespace".into());
+        return Err("Native payload paths must use a fully rooted local Windows drive, not a network or device namespace".into());
     }
     let mut current = PathBuf::new();
     for component in path.components() {
         current.push(component);
+        // A Windows drive prefix (C: or \\?\C:) is not the complete root.
+        // Inspect the root after RootDir adds its separator, then every child.
+        if matches!(component, Component::Prefix(_)) {
+            continue;
+        }
         match fs::symlink_metadata(&current) {
             Ok(meta) if is_link(&meta) => {
                 return Err(format!(
