@@ -120,6 +120,7 @@ jobs:
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/target
         run: |
+          python -m unittest discover -s scripts -p test_prepare_release.py
           python scripts/prepare-release.py --output "$RUNNER_TEMP/bilibilive-registry"
           python - <<'PY'
           import os, pathlib, shutil, tarfile, tomllib

@@ -6,11 +6,13 @@ import hashlib
 import importlib.util
 import io
 from pathlib import Path
+import sys
 import tarfile
 import tempfile
 import unittest
 from unittest import mock
 
+sys.dont_write_bytecode = True
 
 SPEC = importlib.util.spec_from_file_location(
     "prepare_release", Path(__file__).with_name("prepare-release.py")

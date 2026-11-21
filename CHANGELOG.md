@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.1
+
+- Stop embedded zuse programs when a shared operation reports a structured
+  failure, including partial PK teardown and expired verification. Preserve
+  completed steps and redacted failure details, and skip later mutations.
+- Exclude root Git administration files from dependency publication scope
+  while retaining complete source and registry archive comparisons.
+- Build Windows releases with the initialized native compiler environment,
+  and support release retries against an unchanged, verified tag.
+- Keep native C/C++ archives linkable in AUR builds by disabling makepkg's
+  injected LTO flags; Cargo's configured Rust release optimization remains.
+
 ## 0.1.0
 
 The first Rust implementation uses one operation dispatcher for the zgpui desktop,

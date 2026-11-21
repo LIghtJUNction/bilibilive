@@ -74,6 +74,8 @@ explicit waits. The cancellable API checks between calls and every 20 ms while
 waiting; a remote request already in flight finishes under its configured
 network timeout. Receipts preserve completed steps and distinguish completion,
 failure, cancellation, dry-run plans and platform-verification blocks. A
+structured operation failure stops the program and preserves the redacted
+partial result in `failed_step`; later operations are not dispatched. A
 verification-required start or unavailable strict-SRT endpoint stops subsequent
 automation steps.
 
