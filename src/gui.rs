@@ -84,6 +84,7 @@ struct Desktop {
     rx: Receiver<Response>,
     pending: usize,
     demo: bool,
+    read_only: bool,
     config: Value,
     room: Value,
     accounts: Value,
@@ -190,6 +191,7 @@ struct Desktop {
 /// Open the native application. Demo mode never invokes the dispatcher.
 pub fn run(app: App, demo: bool) -> Result<(), String> {
     let directory = app.directory().to_owned();
+    let read_only = app.is_read_only();
     let initial = if demo {
         demo_response("config.get")?
     } else {
@@ -235,7 +237,7 @@ pub fn run(app: App, demo: bool) -> Result<(), String> {
         })
         .map_err(|e| e.to_string())?;
 
-    let mut desktop = Desktop::new(tx, rx, demo);
+    let mut desktop = Desktop::new(tx, rx, demo, read_only);
     desktop.directory = directory;
     desktop.config = initial;
     desktop.images = Some(Images::new()?);
@@ -490,13 +492,14 @@ fn new_window(desktop: &mut Desktop) -> Result<Window, String> {
 }
 
 impl Desktop {
-    fn new(tx: Sender<Request>, rx: Receiver<Response>, demo: bool) -> Self {
+    fn new(tx: Sender<Request>, rx: Receiver<Response>, demo: bool, read_only: bool) -> Self {
         Self {
             page: Page::Overview,
             tx,
             rx,
             pending: 0,
             demo,
+            read_only,
             config: json!({}),
             room: json!({}),
             accounts: json!({}),
@@ -527,7 +530,7 @@ impl Desktop {
             obs_auto_stop: false,
             obs_auto_connect: false,
             obs_link: false,
-            obs_watch_requested: None,
+            obs_watch_requested: Some(false),
             obs_watch_poll: Instant::now(),
             protocol: "rtmp".into(),
             strategy: "fallback".into(),
@@ -1386,7 +1389,7 @@ impl Desktop {
             self.verification_created.is_some(),
             self.pending,
         );
-        if !self.demo && self.config_loaded && self.pending == 0 {
+        if !self.demo && !self.read_only && self.config_loaded && self.pending == 0 {
             let requested = ["obs_auto_connect", "obs_link", "obs_auto_stop"]
                 .into_iter()
                 .any(|key| {
@@ -4436,7 +4439,7 @@ mod tests {
     fn incoming_invitation_must_belong_to_the_selected_account() {
         let (tx, _requests) = mpsc::channel();
         let (_responses, rx) = mpsc::channel();
-        let mut desktop = Desktop::new(tx, rx, false);
+        let mut desktop = Desktop::new(tx, rx, false, false);
         desktop.accounts = json!({"active":"daily","accounts":[{"name":"daily","uid":123}]});
         let mut event = json!({"cmd":"UNIVERSAL_INTERACT_INVITATION","data":{"uid":999,"peer_uid":0,"initiator":456,"source":4,"biz_session_id":"actual-invitation"}});
         desktop.consume_invitation(&event);
@@ -4452,7 +4455,7 @@ mod tests {
     fn round_id_cannot_become_an_invitation_session_id() {
         let (tx, _requests) = mpsc::channel();
         let (responses, rx) = mpsc::channel();
-        let mut desktop = Desktop::new(tx, rx, false);
+        let mut desktop = Desktop::new(tx, rx, false, false);
         responses
             .send(Response {
                 method: "pk.status".into(),
@@ -4467,7 +4470,7 @@ mod tests {
     fn account_generation_zero_is_valid_and_old_results_are_discarded() {
         let (tx, _requests) = mpsc::channel();
         let (responses, rx) = mpsc::channel();
-        let mut desktop = Desktop::new(tx, rx, false);
+        let mut desktop = Desktop::new(tx, rx, false, false);
         responses
             .send(Response {
                 method: "room.get".into(),
@@ -4501,7 +4504,7 @@ mod tests {
     fn background_refresh_preserves_an_unsaved_title_for_the_same_account() {
         let (tx, _requests) = mpsc::channel();
         let (responses, rx) = mpsc::channel();
-        let mut desktop = Desktop::new(tx, rx, false);
+        let mut desktop = Desktop::new(tx, rx, false, false);
         desktop.title = "Unsaved draft".into();
         desktop.room_dirty = true;
         responses
@@ -4516,10 +4519,71 @@ mod tests {
     }
 
     #[test]
+    fn background_obs_watch_starts_only_when_requested_and_stops_afterward() {
+        let (tx, requests) = mpsc::channel();
+        let (responses, rx) = mpsc::channel();
+        let mut desktop = Desktop::new(tx, rx, false, false);
+        desktop.load_config();
+        desktop.tick();
+        assert!(requests.try_recv().is_err());
+        assert!(desktop.activity.is_empty());
+
+        for (enabled, method) in [(true, "obs.watch.start"), (false, "obs.watch.stop")] {
+            desktop.config["obs_auto_connect"] = json!(enabled);
+            desktop.tick();
+            assert_eq!(requests.try_recv().unwrap().method, method);
+            responses
+                .send(Response {
+                    method: method.into(),
+                    result: Ok(json!({"running": enabled})),
+                })
+                .unwrap();
+            desktop.receive();
+            desktop.tick();
+            assert!(requests.try_recv().is_err());
+        }
+    }
+
+    #[test]
+    fn read_only_skips_background_obs_watch_but_preserves_explicit_errors() {
+        for enabled in [false, true] {
+            let (tx, requests) = mpsc::channel();
+            let (responses, rx) = mpsc::channel();
+            let mut desktop = Desktop::new(tx, rx, false, true);
+            desktop.config = json!({
+                "obs_auto_connect": enabled,
+                "obs_link": enabled,
+                "obs_auto_stop": enabled,
+            });
+            desktop.load_config();
+            desktop.tick();
+            assert!(requests.try_recv().is_err());
+            assert!(desktop.notice.is_none());
+            assert!(desktop.activity.is_empty());
+
+            desktop.submit("obs.watch.start", json!({}));
+            let request = requests.try_recv().unwrap();
+            assert_eq!(request.method, "obs.watch.start");
+            let error = "obs.watch.start is disabled in read-only mode";
+            responses
+                .send(Response {
+                    method: request.method,
+                    result: Err(error.into()),
+                })
+                .unwrap();
+            desktop.receive();
+            let (message, success, _) = desktop.notice.as_ref().unwrap();
+            assert_eq!(message, error);
+            assert!(!success);
+            assert_eq!(desktop.activity, vec![("持续观察 OBS 推流状态".into(), false)]);
+        }
+    }
+
+    #[test]
     fn demo_never_starts_the_obs_observer() {
         let (tx, requests) = mpsc::channel();
         let (_responses, rx) = mpsc::channel();
-        let mut desktop = Desktop::new(tx, rx, true);
+        let mut desktop = Desktop::new(tx, rx, true, false);
         desktop.config_loaded = true;
         desktop.config = json!({"obs_auto_connect":true,"obs_link":true,"obs_auto_stop":true});
         desktop.tick();
