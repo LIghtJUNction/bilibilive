@@ -17,6 +17,7 @@ pub mod media;
 pub mod obs;
 pub mod obs_plugin;
 pub mod pk_session;
+pub mod protocol_profile;
 pub mod schema;
 pub mod updater;
 pub mod zuse_host;

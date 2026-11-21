@@ -2,9 +2,10 @@
 //! StartLive 0b5a9830a8305d9cd6ac15378e46bee05b894c11 (GPL-3.0-only).
 //! API requests never retry mutations, follow redirects, or disable TLS checks.
 use crate::auth::CookieJar;
+use crate::protocol_profile::ProtocolProfile;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use reqwest::blocking::{Client, RequestBuilder, Response, multipart};
-use reqwest::header::{CONTENT_TYPE, COOKIE, SET_COOKIE};
+use reqwest::header::{CONTENT_ENCODING, CONTENT_TYPE, COOKIE, SET_COOKIE};
 use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -17,15 +18,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 type Fields = BTreeMap<String, String>;
 pub type BiliResult<T> = Result<T, String>;
 
-const APP_KEY: &str = "aae92bc66f3edfab";
-// Published client protocol constant, not a user credential.
-const APP_SECRET: &str = "af125a0d5279fd576c1b4418a3e8276d";
-const BUILD: &str = "11081";
-const VERSION: &str = "8.7.0.11081";
 const MAX_RESPONSE: u64 = 8 * 1024 * 1024;
-const APP_AGENT: &str =
-    "LiveHime/8.7.0.11081 os/Windows pc_app/livehime build/11081 osVer/10.0_x86_64";
-const WEB_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/105.0.0.0 Safari/537.36 pc_app/livehime build/11081";
 
 #[derive(Clone, Debug)]
 pub struct BiliOptions {
@@ -229,6 +222,7 @@ struct Origins {
 
 pub struct BiliClient {
     client: Client,
+    profile: ProtocolProfile,
     cookies: Mutex<CookieJar>,
     origins: Origins,
     buvid: String,
@@ -246,6 +240,14 @@ impl BiliClient {
     }
 
     pub fn with_options(cookie_header: &str, options: BiliOptions) -> BiliResult<Self> {
+        Self::with_profile(cookie_header, options, ProtocolProfile::default())
+    }
+
+    pub fn with_profile(
+        cookie_header: &str,
+        options: BiliOptions,
+        profile: ProtocolProfile,
+    ) -> BiliResult<Self> {
         let cookies = CookieJar::parse(cookie_header)?;
         let mut builder = Client::builder()
             .connect_timeout(Duration::from_secs(10))
@@ -270,6 +272,7 @@ impl BiliClient {
             .unwrap_or_else(generated_buvid);
         Ok(Self {
             client,
+            profile,
             cookies: Mutex::new(cookies),
             buvid,
             origins: Origins {
@@ -297,7 +300,7 @@ impl BiliClient {
             "room.precheck" => {
                 let mut fields = self.signed(Fields::new(), false);
                 fields.remove("access_key");
-                resign(&mut fields, false);
+                resign(&mut fields, false, &self.profile);
                 self.get_live("/xlive/app-blink/v1/index/GetRoomPreLiveStatus", &fields)
             }
             "area.list" => self.get_live(
@@ -375,7 +378,7 @@ impl BiliClient {
             true,
         );
         query.remove("build");
-        resign(&mut query, true);
+        resign(&mut query, true, &self.profile);
         // Bootstrap retains the signer's insertion order (signature last),
         // unlike the PK transport's fully sorted final form.
         let signature = query.remove("sign").ok_or("Missing bootstrap signature")?;
@@ -423,14 +426,14 @@ impl BiliClient {
             format!("tcp://{host}:{port}")
         };
         let buvid = self.jar()?.get("buvid3").unwrap_or("").to_owned();
-        let login = json!({"roomid":room,"uid":uid,"key":token,"protover":3,"app_id":102,"build":11081,"buvid":buvid,"mobi_app":"pc_link","platform":"pc_link","channel":"bili","version_name":VERSION,"device":"Windows Version: 10.0 x86_64","osver":"Windows Version: 10.0 Build 26100 (release: unavailable; revision: 0; 64-bit)","support_ack":true,"queue_uuid":random_uuid()});
+        let login = json!({"roomid":room,"uid":uid,"key":token,"protover":3,"app_id":102,"build":self.profile.build_number(),"buvid":buvid,"mobi_app":"pc_link","platform":"pc_link","channel":"bili","version_name":self.profile.version(),"device":"Windows Version: 10.0 x86_64","osver":"Windows Version: 10.0 Build 26100 (release: unavailable; revision: 0; 64-bit)","support_ack":true,"queue_uuid":random_uuid()});
         Ok(json!({"host":host,"port":port,"endpoint":address,"login":login}))
     }
 
     /// HTTP sequence ACK is independent of the operation-24 socket ACK.
     pub fn ack_sequences(&self, sequences: &[u32]) -> BiliResult<()> {
         self.authenticated()?;
-        let body = sequence_ack_form(sequences, &self.csrf()?, now())?;
+        let body = sequence_ack_form(sequences, &self.csrf()?, now(), &self.profile)?;
         let request = self
             .prepare(
                 "POST",
@@ -466,7 +469,15 @@ impl BiliClient {
     }
 
     fn signed(&self, values: Fields, native: bool) -> Fields {
-        sign_fields(values, now(), native)
+        sign_fields(values, now(), native, &self.profile)
+    }
+
+    fn signed_live_body(&self, values: Fields, csrf_in_signature: bool) -> BiliResult<Fields> {
+        if csrf_in_signature {
+            Ok(self.signed(self.with_csrf(values)?, false))
+        } else {
+            self.with_csrf(self.signed(values, false))
+        }
     }
 
     fn with_csrf(&self, mut values: Fields) -> BiliResult<Fields> {
@@ -487,20 +498,26 @@ impl BiliClient {
         authenticated: bool,
         native: bool,
     ) -> BiliResult<RequestBuilder> {
-        let url = format!("{origin}{path}");
+        // Query bytes stay canonical; form and native PK encodings differ.
+        let url = if query.is_empty() {
+            format!("{origin}{path}")
+        } else {
+            format!("{origin}{path}?{}", encode_fields(query, native))
+        };
+        let url = reqwest::Url::parse(&url).map_err(|_| "Invalid API path")?;
         let mut req = match method {
             "GET" => self.client.get(url),
             "POST" => self.client.post(url),
             _ => return Err("Unsupported HTTP method".into()),
         };
         req = req
-            .header("User-Agent", if web { WEB_AGENT } else { APP_AGENT })
             .header("Referer", "https://live.bilibili.com/")
             .header("Origin", "https://live.bilibili.com")
-            .header("Accept", "application/json");
+            .header("Accept", "application/json")
+            .headers(self.profile.headers(web).clone());
         if authenticated {
             let mut cookies = self.jar()?;
-            cookies.insert("appkey", APP_KEY)?;
+            cookies.insert("appkey", self.profile.app_key())?;
             cookies.insert("device_name", "bilibilive")?;
             cookies.insert("device_platform", "Windows Version: 10.0 x86_64")?;
             if cookies.get("buvid3").is_none() {
@@ -509,33 +526,6 @@ impl BiliClient {
             req = req
                 .header(COOKIE, cookies.header())
                 .header("buvid", &self.buvid);
-        }
-        if !query.is_empty() {
-            // Attach the already canonicalized bytes unchanged; form and native
-            // PK encodings intentionally differ for spaces and punctuation.
-            let url =
-                reqwest::Url::parse(&format!("{origin}{path}?{}", encode_fields(query, native)))
-                    .map_err(|_| "Invalid API path")?;
-            req = match method {
-                "GET" => self.client.get(url),
-                _ => self.client.post(url),
-            }
-            .header("User-Agent", if web { WEB_AGENT } else { APP_AGENT })
-            .header("Referer", "https://live.bilibili.com/")
-            .header("Origin", "https://live.bilibili.com")
-            .header("Accept", "application/json");
-            if authenticated {
-                let mut cookies = self.jar()?;
-                cookies.insert("appkey", APP_KEY)?;
-                cookies.insert("device_name", "bilibilive")?;
-                cookies.insert("device_platform", "Windows Version: 10.0 x86_64")?;
-                if cookies.get("buvid3").is_none() {
-                    cookies.insert("buvid3", &self.buvid)?;
-                }
-                req = req
-                    .header(COOKIE, cookies.header())
-                    .header("buvid", &self.buvid);
-            }
         }
         if let Some(body) = body {
             req = req
@@ -571,14 +561,7 @@ impl BiliClient {
                     .map_err(|_| "Invalid response Cookie encoding")?,
             )?;
         }
-        let mut bytes = Vec::new();
-        response
-            .take(MAX_RESPONSE + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "Could not read Bilibili response")?;
-        if bytes.len() as u64 > MAX_RESPONSE {
-            return Err("Bilibili response exceeds 8 MiB".into());
-        }
+        let bytes = response_bytes(response)?;
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| "Bilibili returned invalid JSON")?;
         if !value.is_object() {
@@ -959,7 +942,7 @@ impl BiliClient {
             if let Some(area_id) = area {
                 let body = self.with_csrf(fields([
                     ("area_id", area_id),
-                    ("build", BUILD.into()),
+                    ("build", self.profile.build().into()),
                     ("platform", "pc_link".into()),
                     ("room_id", room_id.clone()),
                 ]))?;
@@ -1076,7 +1059,7 @@ impl BiliClient {
         let response = self
             .client
             .get(url.clone())
-            .header("User-Agent", WEB_AGENT)
+            .headers(self.profile.headers(true).clone())
             .header("Referer", "https://live.bilibili.com/")
             .send()
             .map_err(|_| "Could not fetch the current Bilibili cover")?;
@@ -1092,14 +1075,7 @@ impl BiliClient {
         {
             return Err("Current cover exceeds 8 MiB".into());
         }
-        let mut bytes = Vec::new();
-        response
-            .take(MAX_RESPONSE + 1)
-            .read_to_end(&mut bytes)
-            .map_err(|_| "Could not read the current cover")?;
-        if bytes.len() as u64 > MAX_RESPONSE {
-            return Err("Current cover exceeds 8 MiB".into());
-        }
+        let bytes = response_bytes(response)?;
         let mime = cover_mime(&bytes)?;
         Ok(
             json!({"url":url.as_str(),"mime":mime,"base64":BASE64.encode(&bytes),"bytes":bytes.len(),"audit_status":pre.pointer("/cover/auditStatus"),"audit_reason":pre.pointer("/cover/auditReason")}),
@@ -1179,14 +1155,14 @@ impl BiliClient {
         };
         // Validate the protocol policy before performing the mutation.
         protocol_policy(args)?;
-        let body = self.signed(
-            self.with_csrf(fields([
+        let body = self.signed_live_body(
+            fields([
                 ("area_v2", area),
                 ("room_id", room_id.clone()),
                 ("type", "2".into()),
-            ]))?,
-            false,
-        );
+            ]),
+            self.profile.start_csrf(),
+        )?;
         let (raw, _) = self.send_raw(self.prepare(
             "POST",
             &self.origins.live,
@@ -1225,8 +1201,10 @@ impl BiliClient {
     fn stop_live(&self, args: &Value) -> BiliResult<Value> {
         self.authenticated()?;
         let room_id = self.room_id(args)?;
-        // Unlike startLive, stopLive appends CSRF after signing.
-        let body = self.with_csrf(self.signed(fields([("room_id", room_id.clone())]), false))?;
+        let body = self.signed_live_body(
+            fields([("room_id", room_id.clone())]),
+            self.profile.stop_csrf(),
+        )?;
         let data = self.post_live("/room/v1/Room/stopLive", &Fields::new(), &body)?;
         Ok(json!({"status":"stopped", "room_id": room_id, "result": data}))
     }
@@ -1803,7 +1781,7 @@ impl BiliClient {
         let mut body = if spec.signed {
             self.signed(values, true)
         } else {
-            base_fields(values, now())
+            base_fields(values, now(), &self.profile)
         };
         body.extend(extra);
         let (query, form) = if spec.method == "GET" {
@@ -2366,13 +2344,48 @@ fn json_fields(value: Option<&Value>) -> BiliResult<Fields> {
         .collect()
 }
 
-fn base_fields(mut values: Fields, timestamp: u64) -> Fields {
+fn response_bytes(response: Response) -> BiliResult<Vec<u8>> {
+    // Upstream's headers advertise deflate as well as gzip. Reqwest handles
+    // gzip/brotli; the existing flate2 dependency handles the zlib-wrapped HTTP
+    // deflate format with the same bound on both encoded and decoded bytes.
+    let encoding = response
+        .headers()
+        .get(CONTENT_ENCODING)
+        .map(|value| value.to_str().map(str::to_ascii_lowercase))
+        .transpose()
+        .map_err(|_| "Invalid Bilibili response content encoding")?;
+    let mut bytes = Vec::new();
+    response
+        .take(MAX_RESPONSE + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "Could not read Bilibili response")?;
+    if bytes.len() as u64 > MAX_RESPONSE {
+        return Err("Bilibili response exceeds 8 MiB".into());
+    }
+    if encoding.as_deref() == Some("deflate") {
+        let mut decoded = Vec::new();
+        flate2::read::ZlibDecoder::new(bytes.as_slice())
+            .take(MAX_RESPONSE + 1)
+            .read_to_end(&mut decoded)
+            .map_err(|_| "Invalid deflate response from Bilibili")?;
+        if decoded.len() as u64 > MAX_RESPONSE {
+            return Err("Decoded Bilibili response exceeds 8 MiB".into());
+        }
+        Ok(decoded)
+    } else if encoding.as_deref().is_none_or(|value| value == "identity") {
+        Ok(bytes)
+    } else {
+        Err("Bilibili returned an unsupported content encoding".into())
+    }
+}
+
+fn base_fields(mut values: Fields, timestamp: u64, profile: &ProtocolProfile) -> Fields {
     for (key, value) in [
         ("access_key", ""),
-        ("appkey", APP_KEY),
-        ("build", BUILD),
+        ("appkey", profile.app_key()),
+        ("build", profile.build()),
         ("platform", "pc_link"),
-        ("version", VERSION),
+        ("version", profile.version()),
     ] {
         values.entry(key.into()).or_insert_with(|| value.into());
     }
@@ -2382,15 +2395,15 @@ fn base_fields(mut values: Fields, timestamp: u64) -> Fields {
     values
 }
 
-fn sign_fields(values: Fields, timestamp: u64, native: bool) -> Fields {
-    let mut values = base_fields(values, timestamp);
-    resign(&mut values, native);
+fn sign_fields(values: Fields, timestamp: u64, native: bool, profile: &ProtocolProfile) -> Fields {
+    let mut values = base_fields(values, timestamp, profile);
+    resign(&mut values, native, profile);
     values
 }
 
-fn resign(values: &mut Fields, native: bool) {
+fn resign(values: &mut Fields, native: bool, profile: &ProtocolProfile) {
     values.remove("sign");
-    let preimage = format!("{}{APP_SECRET}", encode_fields(values, native));
+    let preimage = format!("{}{}", encode_fields(values, native), profile.app_secret());
     values.insert(
         "sign".into(),
         format!("{:x}", md5::compute(preimage.as_bytes())),
@@ -2580,7 +2593,12 @@ fn random_uuid() -> String {
     )
 }
 
-fn sequence_ack_form(sequences: &[u32], csrf: &str, timestamp: u64) -> BiliResult<String> {
+fn sequence_ack_form(
+    sequences: &[u32],
+    csrf: &str,
+    timestamp: u64,
+    profile: &ProtocolProfile,
+) -> BiliResult<String> {
     if sequences.is_empty() || sequences.len() > 4096 || sequences.contains(&0) {
         return Err("Sequence ACK requires 1–4096 nonzero uint32 sequence numbers".into());
     }
@@ -2588,10 +2606,10 @@ fn sequence_ack_form(sequences: &[u32], csrf: &str, timestamp: u64) -> BiliResul
     sequences.sort_unstable();
     sequences.dedup();
     let mut pairs = vec![
-        ("appkey", APP_KEY.to_owned()),
+        ("appkey", profile.app_key().to_owned()),
         ("ts", timestamp.to_string()),
         ("platform", "pc_link".into()),
-        ("version", VERSION.into()),
+        ("version", profile.version().into()),
         ("access_key", "".into()),
         ("terminal", "1".into()),
     ];
@@ -2603,7 +2621,7 @@ fn sequence_ack_form(sequences: &[u32], csrf: &str, timestamp: u64) -> BiliResul
             .collect::<Vec<_>>()
             .join("&")
     };
-    let preimage = format!("{}{APP_SECRET}", encode(&pairs));
+    let preimage = format!("{}{}", encode(&pairs), profile.app_secret());
     pairs.push(("sign", format!("{:x}", md5::compute(preimage.as_bytes()))));
     pairs.push(("csrf_token", csrf.into()));
     pairs.push(("csrf", csrf.into()));
@@ -2687,6 +2705,13 @@ fn dm_track() -> String {
 mod tests {
     use super::*;
     fn live_fixture(body: Value) -> (BiliClient, std::thread::JoinHandle<String>) {
+        live_fixture_profile(body, ProtocolProfile::default(), false)
+    }
+    fn live_fixture_profile(
+        body: Value,
+        profile: ProtocolProfile,
+        deflate: bool,
+    ) -> (BiliClient, std::thread::JoinHandle<String>) {
         use std::io::{Read, Write};
         use std::net::TcpListener;
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2718,15 +2743,127 @@ mod tests {
                 }
                 assert!(request.len() < 16 * 1024);
             }
-            let body = body.to_string();
-            write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
+            let body = body.to_string().into_bytes();
+            let (body, encoding) = if deflate {
+                let mut encoder =
+                    flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+                encoder.write_all(&body).unwrap();
+                (encoder.finish().unwrap(), "Content-Encoding: deflate\r\n")
+            } else {
+                (body, "")
+            };
+            write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{encoding}Connection: close\r\n\r\n",body.len()).unwrap();
+            socket.write_all(&body).unwrap();
             String::from_utf8(request).unwrap()
         });
-        let mut client =
-            BiliClient::new("SESSDATA=fixture-secret; bili_jct=fixture-csrf; DedeUserID=123")
-                .unwrap();
+        let mut client = BiliClient::with_profile(
+            "SESSDATA=fixture-secret; bili_jct=fixture-csrf; DedeUserID=123",
+            BiliOptions::default(),
+            profile,
+        )
+        .unwrap();
         client.origins.live = format!("http://{address}");
         (client, server)
+    }
+
+    #[test]
+    fn refreshed_snapshot_controls_real_live_signatures_ack_and_headers() {
+        use crate::protocol_profile::ProtocolProfiles;
+        struct Scratch(std::path::PathBuf);
+        impl Drop for Scratch {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let directory = Scratch(
+            std::env::temp_dir().join(format!("bilibilive-protocol-wire-{}", random_uuid())),
+        );
+        let profiles = ProtocolProfiles::new(&directory.0);
+        let old = profiles.snapshot().unwrap();
+        let document = json!({"ak":"1234567890abcdef","as":"0123456789abcdef0123456789abcdef",
+            "b":"12000","v":"9.0.0.12000","start_ac":false,"stop_ac":true,
+            "ha":{"User-Agent":"FixtureApp/9","Accept-Encoding":"gzip,deflate","Accept-Language":"zh-CN"},
+            "hw":{"User-Agent":"FixtureWeb/9","Referer":"https://live.bilibili.com/"}});
+        let (endpoint, server) = live_fixture(document);
+        profiles
+            .refresh_fixture(
+                &BiliOptions::default(),
+                &format!("{}/version.json", endpoint.origins.live),
+            )
+            .unwrap();
+        let refresh_request = server.join().unwrap().to_ascii_lowercase();
+        assert!(!refresh_request.contains("cookie:"));
+        assert!(!refresh_request.contains("authorization:"));
+        let snapshot = ProtocolProfiles::new(&directory.0).snapshot().unwrap();
+        for (operation, include_csrf) in [("live.start", false), ("live.stop", true)] {
+            let body = if operation == "live.start" {
+                json!({"code":60024,"data":{"qr":"https://www.bilibili.com/fixture"}})
+            } else {
+                json!({"code":0,"data":{}})
+            };
+            // The real response exercises upstream's advertised HTTP deflate.
+            let (client, server) = live_fixture_profile(body, snapshot.clone(), true);
+            client
+                .call(operation, &json!({"room_id":42,"area_id":371}))
+                .unwrap();
+            let request = server.join().unwrap();
+            let lower = request.to_ascii_lowercase();
+            assert!(lower.contains("user-agent: fixtureapp/9\r\n"));
+            assert!(lower.contains("accept-language: zh-cn\r\n"));
+            assert!(lower.contains("appkey=1234567890abcdef"));
+            let body = request.split("\r\n\r\n").nth(1).unwrap();
+            let uri = reqwest::Url::parse(&format!("http://fixture/?{body}")).unwrap();
+            let mut fields: Fields = uri.query_pairs().into_owned().collect();
+            assert_eq!(fields["appkey"], "1234567890abcdef");
+            assert_eq!(fields["build"], "12000");
+            assert_eq!(fields["version"], "9.0.0.12000");
+            assert_eq!(fields["csrf"], "fixture-csrf");
+            let signature = fields.remove("sign").unwrap();
+            if !include_csrf {
+                fields.remove("csrf");
+                fields.remove("csrf_token");
+            }
+            // These fixture values need no percent encoding. This independent
+            // preimage asserts the configured secret and CSRF signing order.
+            let preimage = fields
+                .iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("&")
+                + "0123456789abcdef0123456789abcdef";
+            assert_eq!(signature, format!("{:x}", md5::compute(preimage)));
+        }
+        let (mut client, server) =
+            live_fixture_profile(json!({"code":0,"data":{}}), snapshot.clone(), false);
+        client.origins.passport = client.origins.live.clone();
+        client.login_generate().unwrap();
+        let request = server.join().unwrap().to_ascii_lowercase();
+        assert!(request.contains("user-agent: fixtureweb/9\r\n"));
+        assert!(!request.contains("cookie:"));
+        let (client, server) = live_fixture_profile(json!({"code":0,"data":{}}), snapshot, false);
+        client.ack_sequences(&[100, 2, 100]).unwrap();
+        let request = server.join().unwrap();
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        let (preimage, suffix) = body.split_once("&sign=").unwrap();
+        assert!(preimage.starts_with("appkey=1234567890abcdef&ts="));
+        assert!(preimage.contains("&version=9.0.0.12000&"));
+        assert!(preimage.ends_with("&sequence=2&sequence=100"));
+        let expected = format!(
+            "{:x}",
+            md5::compute(format!("{preimage}0123456789abcdef0123456789abcdef"))
+        );
+        assert_eq!(
+            suffix,
+            format!("{expected}&csrf_token=fixture-csrf&csrf=fixture-csrf")
+        );
+        // A client captured before refresh keeps the original complete profile.
+        let (client, server) = live_fixture_profile(json!({"code":0,"data":{}}), old, false);
+        client.call("live.stop", &json!({"room_id":42})).unwrap();
+        let request = server.join().unwrap();
+        assert!(request.contains("appkey=aae92bc66f3edfab"));
+        assert!(request.contains("build=11081"));
+        assert!(request.contains("version=8.7.0.11081"));
+        assert!(request.contains("LiveHime/8.7.0.11081"));
     }
     #[test]
     fn standard_and_native_wire_encodings_are_distinct() {
@@ -2737,11 +2874,11 @@ mod tests {
         );
         assert_eq!(encode_fields(&f, true), "a=%E4%B8%AD%20%E6%96%87!'()*~");
         assert_eq!(
-            sign_fields(f.clone(), 1700000000, false)["sign"],
+            sign_fields(f.clone(), 1700000000, false, &ProtocolProfile::default())["sign"],
             "690fdf35858a15ff6b61f3261c7a642a"
         );
         assert_eq!(
-            sign_fields(f, 1700000000, true)["sign"],
+            sign_fields(f, 1700000000, true, &ProtocolProfile::default())["sign"],
             "e92e32c01d32a1cadf9073acf43fa0f1"
         );
     }
@@ -2759,14 +2896,19 @@ mod tests {
             ("csrf", "fixture".into()),
             ("csrf_token", "fixture".into()),
         ]);
-        let start = sign_fields(csrf.clone(), 1700000000, false);
-        let mut stop = sign_fields(fields([("room_id", "42".into())]), 1700000000, false);
+        let start = sign_fields(csrf.clone(), 1700000000, false, &ProtocolProfile::default());
+        let mut stop = sign_fields(
+            fields([("room_id", "42".into())]),
+            1700000000,
+            false,
+            &ProtocolProfile::default(),
+        );
         stop.extend(csrf);
         assert_ne!(start["sign"], stop["sign"]);
         let mut unsigned = stop.clone();
         unsigned.remove("csrf");
         unsigned.remove("csrf_token");
-        resign(&mut unsigned, false);
+        resign(&mut unsigned, false, &ProtocolProfile::default());
         assert_eq!(unsigned["sign"], stop["sign"]);
     }
     #[test]
@@ -2811,12 +2953,18 @@ mod tests {
     }
     #[test]
     fn sequence_ack_preserves_native_order_and_repeated_keys() {
-        let body = sequence_ack_form(&[100, 2, 100], "csrf fixture", 1700000000).unwrap();
+        let body = sequence_ack_form(
+            &[100, 2, 100],
+            "csrf fixture",
+            1700000000,
+            &ProtocolProfile::default(),
+        )
+        .unwrap();
         assert_eq!(
             body,
             "appkey=aae92bc66f3edfab&ts=1700000000&platform=pc_link&version=8.7.0.11081&access_key=&terminal=1&sequence=2&sequence=100&sign=b0e16fd8f5d527999fe40d3326ba969b&csrf_token=csrf%20fixture&csrf=csrf%20fixture"
         );
-        assert!(sequence_ack_form(&[0], "csrf", 1700000000).is_err());
+        assert!(sequence_ack_form(&[0], "csrf", 1700000000, &ProtocolProfile::default()).is_err());
     }
     #[test]
     fn srt_policy_does_not_silently_fallback_when_strict() {
