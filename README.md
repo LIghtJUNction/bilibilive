@@ -61,6 +61,17 @@ OBS 的 PK 采集插件单独打包为 `bilibilive-obs-plugin` 和 `bilibilive-o
 
 [GitHub Releases](https://github.com/LIghtJUNction/bilibilive/releases)提供正式构建及其 SHA-256 文件。Linux、macOS 和 Windows 的构建由同一个正式发布工作流产生；具体版本实际提供的平台以该版本资产列表为准。
 
+Arch Linux x86_64 可下载 Release 中的 `bilibilive-<版本>-1-x86_64.pkg.tar.gz`，用
+`pacman -U` 安装。该包包含主程序、桌面入口和手册页。OBS 采集插件单独分发。
+
+在 Arch Linux x86_64 上复现该包时，先构建当前版本，并将二进制复制到 zdistro 的暂存目录：
+
+```sh
+cargo build --release --locked
+install -Dm755 "$(cargo metadata --no-deps --format-version 1 | python -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')/release/bilibilive" dist/zdistro-input/bilibilive
+zdistro build --manifest zdistro.toml --target arch
+```
+
 ```sh
 git clone https://github.com/LIghtJUNction/bilibilive.git
 cd bilibilive

@@ -1,0 +1,46 @@
+schema = 1
+
+[package]
+name = "bilibilive"
+version = "0.1.3"
+description = "Native Bilibili streaming studio with CLI, MCP, zuse and zgpui"
+maintainer = "LIghtJUNction <https://github.com/LIghtJUNction>"
+homepage = "https://github.com/LIghtJUNction/bilibilive"
+license = "GPL-3.0-only"
+
+[build]
+kind = "none"
+
+[[files]]
+source = "dist/zdistro-input/bilibilive"
+destination = "usr/bin/bilibilive"
+mode = "0755"
+
+[[files]]
+source = "packaging/bilibilive.desktop"
+destination = "usr/share/applications/bilibilive.desktop"
+
+[[files]]
+source = "packaging/bilibilive.svg"
+destination = "usr/share/icons/hicolor/scalable/apps/bilibilive.svg"
+
+[[files]]
+source = "packaging/bilibilive.1"
+destination = "usr/share/man/man1/bilibilive.1"
+
+[[files]]
+source = "LICENSE"
+destination = "usr/share/licenses/bilibilive/LICENSE"
+
+[[files]]
+source = "NOTICE"
+destination = "usr/share/licenses/bilibilive/NOTICE"
+
+[[files]]
+source = "README.md"
+destination = "usr/share/doc/bilibilive/README.md"
+
+[targets.arch]
+architecture = "x86_64"
+release = "1"
+depends = ["libgcc", "glibc", "libx11", "freetype2", "fontconfig", "libglvnd"]

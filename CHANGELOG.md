@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Update Zuse to 0.4.2 and normalize desktop source formatting.
+- Add an Arch Linux x86_64 binary package built with zdistro.
+
 ## 0.1.2
 
 - Use a warm-gray and terracotta-orange desktop palette while preserving
